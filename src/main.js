@@ -1,13 +1,15 @@
 import Vue from 'vue'
 import App from './App.vue'
 import VueRouter from 'vue-router'
+import GameCenter from './components/GameCenter.vue'
 import PokerGame from './components/PokerGame.vue'
 import Gandengyan from './components/Gandengyan.vue'
 
 Vue.use(VueRouter)
 
 const routes = [
-  { path: "/", component: PokerGame },
+  { path: "/", component: GameCenter },
+  { path: "/pokergame", component: PokerGame },
   { path: "/gandengyan", component: Gandengyan },
 ]
 

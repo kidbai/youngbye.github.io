@@ -21,7 +21,7 @@
   body {
     margin: 0;
   }
-  
+
   .wrapper {
     position: absolute;
     top: 0;
@@ -29,7 +29,7 @@
     right: 0;
     bottom: 0;
   }
-  
+
   .card {
     position: relative;
     width: 50%;
@@ -41,7 +41,7 @@
     background-color: #fff;
     float: left;
   }
-  
+
   .num {
     position: absolute;
     left: 0;
@@ -51,7 +51,7 @@
     font-size: 3rem;
     height: 3rem;
   }
-  
+
   .update {
     position: absolute;
     top: 50%;
@@ -68,7 +68,7 @@
     text-align: center;
     line-height: 100px;
   }
-  
+
   #app {
     font-family: 'Avenir', Helvetica, Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
@@ -77,23 +77,19 @@
     color: #2c3e50;
     margin-top: 60px;
   }
-  
+
   h1,
   h2 {
     font-weight: normal;
   }
-  
+
   ul {
     list-style-type: none;
     padding: 0;
   }
-  
+
   li {
     display: inline-block;
     margin: 0 10px;
   }
-  
-  a {
-    color: #42b983;
-  }
-</style>
+  </style>
