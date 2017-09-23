@@ -68,3 +68,28 @@
     },
   }
 </script>
+
+<style>
+  .card {
+    position: relative;
+    width: 50%;
+    height: 50%;
+    text-align: center;
+    box-sizing: border-box;
+    border-radius: 10px;
+    border: 1px solid #000;
+    background-color: #fff;
+    float: left;
+  }
+
+  .num {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    margin-top: -1.5rem;
+    font-size: 3rem;
+    height: 3rem;
+  }
+
+</style>
