@@ -31,7 +31,7 @@
       </div>
     </div>
     <div class="shake" @click="shake">摇</div>
-    <audio id="audio" src="dist/dice.mp3" controls="controls" style="visibility: hidden">
+    <audio id="audio" src="https://kidbai.github.io/youngbye.github.io/dist/dice.mp3" controls="controls" style="visibility: hidden">
     Your browser does not support the audio element.
     </audio>
     <div v-show="shade" class="shade" @mouseup="shadeMouseUp" @mousedown="shadeMouseDown"></div>
