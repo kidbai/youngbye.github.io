@@ -4,7 +4,7 @@ permalink:      /:year-:month-:day/:title
 # Setup
 title:          Youngbye
 paginate:       5
-baseurl:        "https://kidbai.github.io/youngbye.github.io/"
+baseurl:        "/blog"
 url:            "https://kidbai.github.io/youngbye.github.io/"
 
 # Assets
