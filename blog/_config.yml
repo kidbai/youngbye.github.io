@@ -1,30 +1,39 @@
-# Permalinks
-permalink:      /:year-:month-:day/:title
-
-# Setup
-title:          Youngbye
-paginate:       5
-baseurl:        "/blog"
-url:            "https://kidbai.github.io/youngbye.github.io/"
-
-# Assets
-sass:
-  sass_dir:     _sass
-  style:        :compressed
+# Site settings
+title: Monochrome | A minimal, responsive Jekyll blog theme
+description: "A minimal, responsive, ready to use blog template, built with Jekyll."
+url: "http://www.dyutibarma.github.io/monochrome"
+author:
+  name: "The Review Index"
+  email: "dyutibarma@gmail.com"
+  url: "https://thereviewindex.com"
 
 # Build settings
-markdown:       kramdown
+baseurl: /monochrome # Change this to your relative path (ex: /blog/), or leave just a /
+markdown: kramdown
+source: .
+destination: ./_site
+permalink: /:title
+paginate: 8
+paginate_path: /page:num/
 
-# About
-author:
-  name:         Youngbye
-  url:          https://kidbai.github.io/youngbye.github.io/
-  email:        ybooty0@gmail.com
+# Default values
+defaults:
+  -
+    scope:
+      path: ""
+      type: "posts"
+    values:
+      layout: "post"
 
-# Custom vars
-version:        3.4.1
-github:         "https://kidbai.github.io/"
-
-# Gems
+# Plugins
 gems:
   - jekyll-paginate
+  - jekyll-sitemap
+
+# Custom variables
+version: "1.0.0"
+
+# Options
+custom_header: false
+custom_nav_footer: false
+reverse: false
