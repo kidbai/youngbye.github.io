@@ -30,6 +30,13 @@ const games: GameItem[] = [
     icon: '🎲',
     description: '摇骰子，看运气',
     gradient: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)'
+  },
+  {
+    path: '/grasscutter',
+    name: '鸡哔蛋卷大魔王',
+    icon: '🐔',
+    description: '操控白球消灭敌人，10关挑战',
+    gradient: 'linear-gradient(135deg, #00D9FF 0%, #00FF88 100%)'
   }
 ]
 
@@ -38,7 +45,7 @@ function GameCenter() {
     <div className={styles.container}>
       <header className={styles.header}>
         <div className={styles.logo}>🎮</div>
-        <h1 className={styles.title}>干瞪眼小分队</h1>
+        <h1 className={styles.title}>🎯 干瞪眼小分队</h1>
         <p className={styles.subtitle}>游戏中心</p>
       </header>
 
