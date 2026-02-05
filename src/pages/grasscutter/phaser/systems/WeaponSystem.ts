@@ -101,29 +101,26 @@ export class WeaponSystem {
     })
   }
 
-  /** 绘制单把武器（抓痕线段 + 猫爪） */
+  /** 绘制单把武器（只绘制猫爪，无连接线） */
   private drawWeapon(
     graphics: Phaser.GameObjects.Graphics,
-    startX: number,
-    startY: number,
+    _startX: number,
+    _startY: number,
     endX: number,
     endY: number,
     angle: number
   ): void {
     graphics.clear()
 
-    // 抓痕线段（细线半透明白色，与原版一致）
-    graphics.lineStyle(Math.max(1, this.config.width * 0.25), 0xffffff, 0.22)
-    graphics.beginPath()
-    graphics.moveTo(startX, startY)
-    graphics.lineTo(endX, endY)
-    graphics.strokePath()
-
-    // 猫爪在末端
+    // 只绘制猫爪在末端，无连接线
     this.drawPaw(graphics, endX, endY, angle, this.config.width * 3)
   }
 
-  /** 绘制猫爪 */
+  /** 
+   * 绘制猫爪（参考标准猫爪图案）
+   * 结构：大掌垫在中心偏下，四个趾垫在上方呈弧形排列
+   * 朝向：趾垫朝向外侧（远离玩家方向）
+   */
   private drawPaw(
     graphics: Phaser.GameObjects.Graphics,
     x: number,
@@ -131,47 +128,53 @@ export class WeaponSystem {
     angle: number,
     size: number
   ): void {
-    graphics.save?.()
+    // 猫爪朝向外侧（angle 指向外侧）
+    const cos = Math.cos(angle)
+    const sin = Math.sin(angle)
 
-    // 主掌垫
+    // === 外轮廓（可选，让猫爪更明显） ===
+    // graphics.lineStyle(2, PAW_COLORS.stroke)
+    // graphics.strokeCircle(x, y, size * 0.6)
+
+    // === 大掌垫（心形底部，位于中心偏内侧） ===
+    // 掌垫偏移到内侧（靠近玩家方向）
+    const padOffsetX = -cos * size * 0.15
+    const padOffsetY = -sin * size * 0.15
+    const padX = x + padOffsetX
+    const padY = y + padOffsetY
+
+    // 白色外圈
     graphics.fillStyle(PAW_COLORS.main)
-    graphics.fillEllipse(x, y, size * 0.76, size * 0.64)
+    graphics.fillEllipse(padX, padY, size * 0.7, size * 0.6)
     graphics.lineStyle(2, PAW_COLORS.stroke)
-    graphics.strokeEllipse(x, y, size * 0.76, size * 0.64)
+    graphics.strokeEllipse(padX, padY, size * 0.7, size * 0.6)
 
-    // 掌垫细节
+    // 黑色内垫
     graphics.fillStyle(PAW_COLORS.pad)
-    graphics.fillEllipse(x, y, size * 0.56, size * 0.44)
+    graphics.fillEllipse(padX, padY, size * 0.5, size * 0.42)
 
-    // 四个趾垫（简化版，不做旋转偏移）
-    const toeOffsets = [
-      { dx: -size * 0.32, dy: -size * 0.36 },
-      { dx: -size * 0.12, dy: -size * 0.42 },
-      { dx: size * 0.12, dy: -size * 0.42 },
-      { dx: size * 0.32, dy: -size * 0.36 },
-    ]
-    const toeRadii = [size * 0.14, size * 0.16, size * 0.16, size * 0.14]
+    // === 四个趾垫（在外侧呈弧形排列） ===
+    // 趾垫相对于猫爪中心的位置（朝外侧）
+    const toeDistance = size * 0.42 // 趾垫到中心的距离
+    const toeAngles = [-0.45, -0.15, 0.15, 0.45] // 相对于主方向的偏移角度（弧度）
+    const toeSizes = [size * 0.18, size * 0.2, size * 0.2, size * 0.18] // 趾垫大小
 
-    // 将偏移量按武器角度旋转
-    const cos = Math.cos(angle - Math.PI / 2)
-    const sin = Math.sin(angle - Math.PI / 2)
+    toeAngles.forEach((toeAngle, i) => {
+      // 趾垫的实际角度 = 武器角度 + 偏移角度
+      const actualAngle = angle + toeAngle
+      const toeX = x + Math.cos(actualAngle) * toeDistance
+      const toeY = y + Math.sin(actualAngle) * toeDistance
 
-    toeOffsets.forEach((offset, i) => {
-      const rotatedX = offset.dx * cos - offset.dy * sin
-      const rotatedY = offset.dx * sin + offset.dy * cos
-      const toeX = x + rotatedX
-      const toeY = y + rotatedY
-
+      // 白色外圈
       graphics.fillStyle(PAW_COLORS.main)
-      graphics.fillEllipse(toeX, toeY, toeRadii[i] * 1.8, toeRadii[i] * 2)
+      graphics.fillEllipse(toeX, toeY, toeSizes[i], toeSizes[i] * 1.1)
       graphics.lineStyle(1.5, PAW_COLORS.stroke)
-      graphics.strokeEllipse(toeX, toeY, toeRadii[i] * 1.8, toeRadii[i] * 2)
+      graphics.strokeEllipse(toeX, toeY, toeSizes[i], toeSizes[i] * 1.1)
 
+      // 黑色内垫
       graphics.fillStyle(PAW_COLORS.pad)
-      graphics.fillEllipse(toeX, toeY, toeRadii[i] * 1.2, toeRadii[i] * 1.4)
+      graphics.fillEllipse(toeX, toeY, toeSizes[i] * 0.65, toeSizes[i] * 0.75)
     })
-
-    graphics.restore?.()
   }
 
   /** 检测武器命中（对敌人组） */
