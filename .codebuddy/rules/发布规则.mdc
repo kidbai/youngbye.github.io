@@ -1,9 +1,0 @@
----
-description: 
-alwaysApply: true
-enabled: true
-updatedAt: 2026-02-05T12:50:25.834Z
-provider: 
----
-
-只要我说发布部署，就把最新的 master 构建产物同步到 gh-pages 分支根目录（GitHub Pages 的发布源），并推送触发部署；约束是保持 gh-pages 只放静态产物（index.html + assets/*）。我会从 origin/master 拿到最新 dist，覆盖到 gh-pages 的根目录后提交并 push。
