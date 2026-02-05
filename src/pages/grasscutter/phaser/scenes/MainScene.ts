@@ -453,6 +453,8 @@ export class MainScene extends Phaser.Scene {
   private showUpgradeMenu(): void {
     if (this.pendingUpgrades > 0 && this.gameState === 'playing') {
       this.gameState = 'upgrading'
+      // 暂停物理引擎，停止所有物体移动
+      this.physics.pause()
       emitNeedUpgrade()
       this.emitState()
     }
@@ -547,10 +549,13 @@ export class MainScene extends Phaser.Scene {
 
     eventBus.on(Events.PAUSE, () => {
       this.scene.pause()
+      this.physics.pause()
     })
 
     eventBus.on(Events.RESUME, () => {
       this.scene.resume()
+      // 恢复物理引擎
+      this.physics.resume()
       if (this.gameState === 'upgrading' && this.pendingUpgrades <= 0) {
         this.gameState = 'playing'
       }
@@ -607,6 +612,8 @@ export class MainScene extends Phaser.Scene {
       // 还有待处理的升级
       this.emitState()
     } else {
+      // 所有升级完成，恢复物理引擎
+      this.physics.resume()
       this.gameState = 'playing'
       this.emitState()
       this.checkBossSpawn()
