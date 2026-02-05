@@ -1,18 +1,52 @@
-# 24game
+# 干瞪眼小分队游戏中心
 
-> A Vue.js project
+> 一个使用 React + TypeScript + Vite 构建的游戏中心应用
 
-## Build Setup
+## 功能
 
-``` bash
-# install dependencies
+- 🃏 **24点** - 随机发四张扑克牌，用加减乘除算出24
+- 👀 **干瞪眼计算器** - 计算多人游戏的收益费用
+- 🎲 **骰子** - 摇骰子小游戏
+
+## 技术栈
+
+- React 18
+- TypeScript
+- Vite
+- React Router v6
+- CSS Modules
+
+## 开发指南
+
+```bash
+# 安装依赖
 npm install
 
-# serve with hot reload at localhost:8080
+# 启动开发服务器
 npm run dev
 
-# build for production with minification
+# 构建生产版本
 npm run build
+
+# 预览生产构建
+npm run preview
 ```
 
-For detailed explanation on how things work, consult the [docs for vue-loader](http://vuejs.github.io/vue-loader).
+## 项目结构
+
+```
+src/
+├── main.tsx          # 入口文件
+├── App.tsx           # 根组件
+├── pages/            # 页面组件
+│   ├── GameCenter.tsx    # 游戏中心首页
+│   ├── PokerGame.tsx     # 24点游戏
+│   ├── Gandengyan.tsx    # 干瞪眼计算器
+│   └── Dice.tsx          # 骰子游戏
+└── styles/           # 样式文件
+    └── index.css         # 全局样式
+```
+
+## License
+
+MIT

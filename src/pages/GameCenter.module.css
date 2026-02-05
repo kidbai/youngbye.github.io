@@ -1,0 +1,220 @@
+.container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding: 40px 20px;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.header {
+  text-align: center;
+  margin-bottom: 40px;
+  animation: fadeInDown 0.6s ease-out;
+}
+
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.logo {
+  font-size: 64px;
+  margin-bottom: 16px;
+  animation: bounce 2s infinite;
+}
+
+@keyframes bounce {
+  0%, 20%, 50%, 80%, 100% {
+    transform: translateY(0);
+  }
+  40% {
+    transform: translateY(-20px);
+  }
+  60% {
+    transform: translateY(-10px);
+  }
+}
+
+.title {
+  font-size: 32px;
+  font-weight: 700;
+  background: var(--primary-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 8px;
+}
+
+.subtitle {
+  font-size: 18px;
+  color: #6c757d;
+  font-weight: 500;
+}
+
+.gameList {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.gameCard {
+  display: flex;
+  align-items: center;
+  padding: 24px;
+  background: white;
+  border-radius: var(--border-radius);
+  text-decoration: none;
+  color: inherit;
+  box-shadow: var(--card-shadow);
+  transition: var(--transition);
+  position: relative;
+  overflow: hidden;
+  animation: fadeInUp 0.6s ease-out backwards;
+}
+
+.gameCard:nth-child(1) { animation-delay: 0.1s; }
+.gameCard:nth-child(2) { animation-delay: 0.2s; }
+.gameCard:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.gameCard::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--card-gradient);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.3s ease;
+}
+
+.gameCard:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--card-shadow-hover);
+}
+
+.gameCard:hover::before {
+  transform: scaleX(1);
+}
+
+.gameCard:active {
+  transform: translateY(-2px);
+}
+
+.cardIcon {
+  width: 70px;
+  height: 70px;
+  border-radius: 16px;
+  background: var(--card-gradient);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  flex-shrink: 0;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+}
+
+.cardContent {
+  flex: 1;
+  margin-left: 20px;
+}
+
+.cardTitle {
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  color: #2c3e50;
+}
+
+.cardDesc {
+  font-size: 14px;
+  color: #6c757d;
+  line-height: 1.5;
+}
+
+.cardArrow {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #f8f9fa;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: var(--transition);
+}
+
+.cardArrow svg {
+  width: 20px;
+  height: 20px;
+  color: #6c757d;
+  transition: var(--transition);
+}
+
+.gameCard:hover .cardArrow {
+  background: var(--card-gradient);
+}
+
+.gameCard:hover .cardArrow svg {
+  color: white;
+  transform: translateX(2px);
+}
+
+.footer {
+  text-align: center;
+  padding-top: 40px;
+  color: #adb5bd;
+  font-size: 14px;
+}
+
+@media (max-width: 480px) {
+  .container {
+    padding: 24px 16px;
+  }
+  
+  .logo {
+    font-size: 48px;
+  }
+  
+  .title {
+    font-size: 26px;
+  }
+  
+  .gameCard {
+    padding: 20px;
+  }
+  
+  .cardIcon {
+    width: 56px;
+    height: 56px;
+    font-size: 26px;
+  }
+  
+  .cardTitle {
+    font-size: 18px;
+  }
+  
+  .cardDesc {
+    font-size: 13px;
+  }
+}

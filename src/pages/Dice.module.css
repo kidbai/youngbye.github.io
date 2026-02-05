@@ -1,0 +1,346 @@
+.container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding: 80px 20px 40px;
+  background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+}
+
+.header {
+  text-align: center;
+  margin-bottom: 30px;
+}
+
+.title {
+  font-size: 36px;
+  font-weight: 700;
+  color: white;
+  margin-bottom: 8px;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+}
+
+.subtitle {
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.diceArea {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 30px;
+}
+
+.diceWrapper {
+  position: relative;
+  padding: 20px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.diceGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  max-width: 360px;
+  width: 100%;
+}
+
+/* 5个骰子时，让最后两个居中显示 */
+.diceGrid > *:nth-child(4) {
+  grid-column: 1 / 2;
+  justify-self: end;
+  margin-right: -20px;
+}
+
+.diceGrid > *:nth-child(5) {
+  grid-column: 3 / 4;
+  justify-self: start;
+  margin-left: -20px;
+}
+
+.diceContainer {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: dropIn 0.5s ease-out backwards;
+}
+
+.diceContainer:nth-child(1) { animation-delay: 0.1s; }
+.diceContainer:nth-child(2) { animation-delay: 0.15s; }
+.diceContainer:nth-child(3) { animation-delay: 0.2s; }
+.diceContainer:nth-child(4) { animation-delay: 0.25s; }
+.diceContainer:nth-child(5) { animation-delay: 0.3s; }
+
+@keyframes dropIn {
+  from {
+    opacity: 0;
+    transform: translateY(-50px) rotate(-10deg);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) rotate(0);
+  }
+}
+
+.diceContainer.shaking {
+  animation: shake 0.1s ease-in-out infinite;
+}
+
+@keyframes shake {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-5deg) scale(0.95); }
+  75% { transform: rotate(5deg) scale(0.95); }
+}
+
+.face {
+  width: 90px;
+  height: 90px;
+  background: linear-gradient(145deg, #ffffff 0%, #e8e8e8 100%);
+  border-radius: 16px;
+  box-shadow: 
+    0 8px 25px rgba(0, 0, 0, 0.2),
+    inset 0 2px 0 rgba(255, 255, 255, 0.8),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.05);
+  padding: 10px;
+  display: flex;
+  transition: transform 0.2s ease;
+}
+
+.diceContainer:hover .face {
+  transform: scale(1.05);
+}
+
+.pip {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #1a1a2e 0%, #0f0f1a 100%);
+  box-shadow: 
+    inset 0 2px 4px rgba(255, 255, 255, 0.1),
+    0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* 骰子面布局 */
+.face1 {
+  justify-content: center;
+  align-items: center;
+}
+
+.face1 .pip {
+  width: 24px;
+  height: 24px;
+  background: linear-gradient(145deg, #e74c3c 0%, #c0392b 100%);
+}
+
+.face2 {
+  justify-content: space-between;
+}
+
+.face2 .pip:nth-child(2) {
+  align-self: flex-end;
+}
+
+.face3 {
+  justify-content: space-between;
+}
+
+.face3 .pip:nth-child(2) {
+  align-self: center;
+}
+
+.face3 .pip:nth-child(3) {
+  align-self: flex-end;
+}
+
+.face4,
+.face6 {
+  justify-content: space-between;
+}
+
+.face4 .column,
+.face6 .column {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.face5 {
+  justify-content: space-between;
+}
+
+.face5 .column {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.face5 .columnCenter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sumDisplay {
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
+  padding: 16px 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.sumLabel {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.sumValue {
+  font-size: 42px;
+  font-weight: 700;
+  color: white;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+}
+
+.footer {
+  padding-top: 30px;
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+}
+
+.shakeBtn,
+.coverBtn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 36px;
+  border: none;
+  border-radius: 50px;
+  font-size: 18px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.shakeBtn {
+  background: white;
+  color: #11998e;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+}
+
+.shakeBtn:hover:not(:disabled) {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+}
+
+.shakeBtn:disabled {
+  opacity: 0.8;
+  cursor: not-allowed;
+}
+
+.shakeBtn.shaking .btnIcon {
+  animation: spin 0.3s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.coverBtn {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  backdrop-filter: blur(10px);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.coverBtn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.coverBtn:active {
+  background: rgba(0, 0, 0, 0.8);
+}
+
+.btnIcon {
+  font-size: 24px;
+}
+
+.shade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, #1a1a2e 0%, #0f0f1a 100%);
+  border-radius: 24px;
+  z-index: 10;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.2s ease;
+}
+
+.shade::after {
+  content: '🙈 点击揭开';
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 18px;
+  font-weight: 500;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (max-width: 480px) {
+  .container {
+    padding: 70px 16px 30px;
+  }
+  
+  .title {
+    font-size: 28px;
+  }
+  
+  .diceGrid {
+    gap: 12px;
+  }
+  
+  .face {
+    width: 80px;
+    height: 80px;
+    border-radius: 12px;
+    padding: 8px;
+  }
+  
+  .pip {
+    width: 16px;
+    height: 16px;
+  }
+  
+  .face1 .pip {
+    width: 20px;
+    height: 20px;
+  }
+  
+  .sumValue {
+    font-size: 36px;
+  }
+  
+  .shakeBtn,
+  .coverBtn {
+    padding: 14px 24px;
+    font-size: 16px;
+  }
+  
+  .btnIcon {
+    font-size: 20px;
+  }
+}
