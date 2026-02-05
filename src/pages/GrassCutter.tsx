@@ -343,7 +343,7 @@ function GrassCutter() {
   const enemyIdCounter = useRef(0)
   const bulletIdCounter = useRef(0)
   const lastTimeRef = useRef(0)
-  const canvasSizeRef = useRef({ width: 0, height: 0 })
+  const canvasSizeRef = useRef({ width: 0, height: 0, dpr: 1 })
   // 用 ref 持有最新的 gameLoop，避免 rAF 递归调度导致闭包拿到旧 state（切关后 Boss/逻辑不生效）
   const gameLoopCallbackRef = useRef<(timestamp: number) => void>(() => {})
   const minionImagesRef = useRef<HTMLImageElement[]>([])
@@ -376,10 +376,23 @@ function GrassCutter() {
     if (!canvas) return
 
     const rect = canvas.getBoundingClientRect()
-    canvas.width = rect.width
-    canvas.height = rect.height
-    canvasSizeRef.current = { width: rect.width, height: rect.height }
-    console.log('[Init] Canvas initialized:', { width: rect.width, height: rect.height })
+    // 关键：按设备像素比设置 canvas 实际分辨率，避免移动端插值导致图片/圆形头像边缘发糊
+    const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1))
+    canvas.width = Math.round(rect.width * dpr)
+    canvas.height = Math.round(rect.height * dpr)
+    canvas.style.width = `${Math.round(rect.width)}px`
+    canvas.style.height = `${Math.round(rect.height)}px`
+    canvasSizeRef.current = { width: rect.width, height: rect.height, dpr }
+
+    // 预先设置坐标系（后续 renderGame 里也会再次保证 transform 正确）
+    const ctx = canvas.getContext('2d')
+    if (ctx) {
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx.imageSmoothingEnabled = true
+      ctx.imageSmoothingQuality = 'high'
+    }
+
+    console.log('[Init] Canvas initialized:', { width: rect.width, height: rect.height, dpr })
 
     // 初始化玩家位置到画布中央
     playerRef.current = {
@@ -847,7 +860,13 @@ function GrassCutter() {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    const { width, height } = canvasSizeRef.current
+    const { width, height, dpr } = canvasSizeRef.current
+
+    // 每帧确保 transform 正确（避免后续代码更改了 transform 或移动端动态 DPR 变化）
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.imageSmoothingEnabled = true
+    ctx.imageSmoothingQuality = 'high'
+
     const player = playerRef.current
     const weaponState = weaponStateRef.current
     const enemies = enemiesRef.current
