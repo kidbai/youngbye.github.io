@@ -3,8 +3,11 @@ import { useNavigate } from 'react-router-dom'
 import styles from './GrassCutter.module.css'
 import minionImg1 from '../assets/minion.png'
 import minionImg2 from '../assets/minion2.png'
+import monsterImg from '../assets/monster.png'
 import yuanxiaoImg from '../assets/yuanxiao.png'
+import yuanxiaoShotedImg from '../assets/yuanxiao-shoted.png'
 import bossImg from '../assets/boss.png'
+import bossShotImg from '../assets/boss-shot.png'
 
 // ==================== 类型定义 ====================
 
@@ -16,6 +19,10 @@ interface Player {
   maxHp: number
   speed: number
   bossTouchCooldown: number // 触碰 Boss 的掉血冷却，避免每帧叠加秒死
+  isHit: boolean // 受击状态
+  hitTimer: number // 受击动画计时器
+  speech: string // 被击中时的重庆话骚话
+  speechTimer: number // 骚话显示计时器
 }
 
 interface Weapon {
@@ -60,6 +67,8 @@ interface Boss {
   speechTimer: number
   shootTimer: number // 射击冷却计时器
   speechCooldown: number // 骚话冷却计时器
+  isShooting: boolean // 射击中（用于切图）
+  shootingTimer: number // 射击动画计时器
 }
 
 // Boss 子弹类型
@@ -118,6 +127,23 @@ const ENEMY_SPEECHES = [
   '汝竟然是厚颜无耻之喵',
 ]
 const SPEECH_DURATION = 2000 // 话术显示时长（毫秒）
+
+// 元宵被击中时的重庆话骚话
+const PLAYER_HIT_SPEECHES = [
+  '哎哟喂，老子遭起了！',
+  '锤子哦，疼死老子了！',
+  '瓜娃子，你敢打老子！',
+  '格老子的，安逸惨了！',
+  '妈哟，老子要发火了！',
+  '啷个搞起的嘛！',
+  '日白，老子不得行了！',
+  '你龟儿等到，老子要收拾你！',
+  '遭不住了，痛惨了！',
+  '哦豁，老子要翻车！',
+  '瓜皮，敢打老子脑壳！',
+  '莫挨老子，老子要爆炸！',
+]
+const PLAYER_SPEECH_DURATION = 1500 // 元宵话术显示时长（毫秒）
 
 // 蛋卷大魔王的骚话（10种）
 const BOSS_SPEECHES = [
@@ -179,6 +205,10 @@ const INITIAL_PLAYER = {
   maxHp: 100,
   speed: 5, // 提高玩家速度以保持平衡
   bossTouchCooldown: 0,
+  isHit: false,
+  hitTimer: 0,
+  speech: '',
+  speechTimer: 0,
 }
 
 const UPGRADE_DAMAGE_INCREASE = 3
@@ -218,6 +248,63 @@ function createWeapons(count: number, damage: number, range: number, rotationSpe
     })
   }
   return weapons
+}
+
+// 绘制猫爪（用于武器/子弹样式）
+function drawPawWeapon(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  angleDeg: number,
+  size: number,
+  mainColor: string,
+  padColor: string,
+  strokeColor: string
+) {
+  ctx.save()
+  ctx.translate(x, y)
+  ctx.rotate((angleDeg * Math.PI) / 180)
+
+  // 轮廓
+  ctx.lineJoin = 'round'
+  ctx.lineCap = 'round'
+
+  // 主掌垫
+  ctx.beginPath()
+  ctx.ellipse(0, size * 0.12, size * 0.38, size * 0.32, 0, 0, Math.PI * 2)
+  ctx.fillStyle = mainColor
+  ctx.fill()
+  ctx.strokeStyle = strokeColor
+  ctx.lineWidth = Math.max(2, size * 0.08)
+  ctx.stroke()
+
+  // 掌垫细节
+  ctx.beginPath()
+  ctx.ellipse(0, size * 0.12, size * 0.28, size * 0.22, 0, 0, Math.PI * 2)
+  ctx.fillStyle = padColor
+  ctx.fill()
+
+  // 四个趾垫
+  const toeY = -size * 0.24
+  const toeX = [-size * 0.32, -size * 0.12, size * 0.12, size * 0.32]
+  const toeR = [0.16, 0.18, 0.18, 0.16].map(v => v * size)
+
+  for (let i = 0; i < 4; i++) {
+    ctx.beginPath()
+    ctx.ellipse(toeX[i], toeY, toeR[i] * 0.9, toeR[i], 0, 0, Math.PI * 2)
+    ctx.fillStyle = mainColor
+    ctx.fill()
+    ctx.strokeStyle = strokeColor
+    ctx.lineWidth = Math.max(2, size * 0.07)
+    ctx.stroke()
+
+    ctx.beginPath()
+    ctx.ellipse(toeX[i], toeY, toeR[i] * 0.62, toeR[i] * 0.7, 0, 0, Math.PI * 2)
+    ctx.fillStyle = padColor
+    ctx.fill()
+  }
+
+  ctx.restore()
 }
 
 // ==================== 主组件 ====================
@@ -261,7 +348,9 @@ function GrassCutter() {
   const gameLoopCallbackRef = useRef<(timestamp: number) => void>(() => {})
   const minionImagesRef = useRef<HTMLImageElement[]>([])
   const playerImageRef = useRef<HTMLImageElement | null>(null)
+  const playerShotedImageRef = useRef<HTMLImageElement | null>(null)
   const bossImageRef = useRef<HTMLImageElement | null>(null)
+  const bossShotImageRef = useRef<HTMLImageElement | null>(null)
   
   // Boss 相关
   const bossRef = useRef<Boss | null>(null)
@@ -331,6 +420,10 @@ function GrassCutter() {
     setPlayerHp(INITIAL_PLAYER.hp)
     playerRef.current.hp = INITIAL_PLAYER.hp
     playerRef.current.bossTouchCooldown = 0
+    playerRef.current.isHit = false
+    playerRef.current.hitTimer = 0
+    playerRef.current.speech = ''
+    playerRef.current.speechTimer = 0
     setGameState('playing')
     setPendingUpgrades(0)
     
@@ -377,7 +470,7 @@ function GrassCutter() {
       maxHp: config.enemyHp,
       speed: config.enemySpeed,
       hitFlash: 0,
-      imageIndex: Math.floor(Math.random() * 2), // 随机选择 0 或 1
+      imageIndex: Math.floor(Math.random() * 3), // 随机选择 0/1/2（含 monster）
       speech: ENEMY_SPEECHES[Math.floor(Math.random() * ENEMY_SPEECHES.length)],
       speechTimer: SPEECH_DURATION, // 初始显示话术
     }
@@ -402,6 +495,8 @@ function GrassCutter() {
       speechTimer: SPEECH_DURATION,
       shootTimer: BOSS_CONFIG.shootInterval,
       speechCooldown: BOSS_SPEECH_INTERVAL,
+      isShooting: false,
+      shootingTimer: 0,
     }
 
     bossRef.current = boss
@@ -579,6 +674,14 @@ function GrassCutter() {
         boss.speechTimer -= deltaTime
       }
 
+      // Boss 射击切图计时
+      if (boss.isShooting) {
+        boss.shootingTimer -= deltaTime
+        if (boss.shootingTimer <= 0) {
+          boss.isShooting = false
+        }
+      }
+
       // Boss 骚话冷却
       boss.speechCooldown -= deltaTime
       if (boss.speechCooldown <= 0) {
@@ -607,6 +710,10 @@ function GrassCutter() {
             damage: BOSS_CONFIG.bulletDamage,
           }
           bossBulletsRef.current.push(bullet)
+
+          // 射击切图动画
+          boss.isShooting = true
+          boss.shootingTimer = 260
         }
         
         boss.shootTimer = BOSS_CONFIG.shootInterval
@@ -700,6 +807,12 @@ function GrassCutter() {
     // 应用伤害
     if (damageToPlayer > 0) {
       player.hp -= damageToPlayer
+      // 元宵受击动效 + 换图 + 重庆话骚话
+      player.isHit = true
+      player.hitTimer = 300 // 300ms 受击动画
+      player.speech = PLAYER_HIT_SPEECHES[Math.floor(Math.random() * PLAYER_HIT_SPEECHES.length)]
+      player.speechTimer = PLAYER_SPEECH_DURATION
+
       setPlayerHp(player.hp)
 
       if (player.hp <= 0) {
@@ -710,6 +823,19 @@ function GrassCutter() {
     // 更新 Boss 触碰冷却
     if (player.bossTouchCooldown > 0) {
       player.bossTouchCooldown -= deltaTime
+    }
+
+    // 更新元宵受击状态
+    if (player.isHit) {
+      player.hitTimer -= deltaTime
+      if (player.hitTimer <= 0) {
+        player.isHit = false
+      }
+    }
+
+    // 更新元宵骚话计时器
+    if (player.speechTimer > 0) {
+      player.speechTimer -= deltaTime
     }
   }, [gameState, currentLevel, checkWeaponCollision, checkPlayerCollision])
 
@@ -891,55 +1017,71 @@ function GrassCutter() {
       }
     }
 
-    // 绘制所有武器
-    const weaponColors = [
-      ['#00D9FF', '#00FF88'],
-      ['#FF6B6B', '#FFE66D'],
-      ['#A855F7', '#EC4899'],
-      ['#22D3EE', '#818CF8'],
-      ['#F97316', '#FACC15'],
-      ['#10B981', '#3B82F6'],
-    ]
-    
+    // 绘制所有武器（猫爪样式：元宵白色系）
+    const playerPawColors = {
+      main: '#FFFFFF',
+      pad: '#111827',
+      stroke: '#111827',
+    }
+
     for (let i = 0; i < weaponState.weapons.length; i++) {
       const weapon = weaponState.weapons[i]
-      const colors = weaponColors[i % weaponColors.length]
-      
       const angleRad = (weapon.angle * Math.PI) / 180
       const weaponEndX = player.x + Math.cos(angleRad) * weapon.range
       const weaponEndY = player.y + Math.sin(angleRad) * weapon.range
 
-      // 武器发光效果
-      ctx.shadowColor = colors[0]
-      ctx.shadowBlur = 15
-      
-      // 武器主体
-      const weaponGradient = ctx.createLinearGradient(player.x, player.y, weaponEndX, weaponEndY)
-      weaponGradient.addColorStop(0, colors[0])
-      weaponGradient.addColorStop(1, colors[1])
-      
+      // 轻微的“抓痕轨迹”，不加光晕，保证边界清晰
+      ctx.save()
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)'
+      ctx.lineWidth = Math.max(1, weapon.width * 0.25)
+      ctx.lineCap = 'round'
       ctx.beginPath()
       ctx.moveTo(player.x, player.y)
       ctx.lineTo(weaponEndX, weaponEndY)
-      ctx.strokeStyle = weaponGradient
-      ctx.lineWidth = weapon.width
-      ctx.lineCap = 'round'
       ctx.stroke()
+      ctx.restore()
+
+      // 在末端绘制猫爪
+      drawPawWeapon(
+        ctx,
+        weaponEndX,
+        weaponEndY,
+        weapon.angle + 90,
+        weapon.width * 3,
+        playerPawColors.main,
+        playerPawColors.pad,
+        playerPawColors.stroke
+      )
     }
-    
-    ctx.shadowBlur = 0
 
     // 绘制玩家（元宵）
     const playerImage = playerImageRef.current
-    if (playerImage && playerImage.complete) {
-      // 外发光
-      ctx.beginPath()
-      ctx.arc(player.x, player.y, player.radius + 5, 0, Math.PI * 2)
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.2)'
-      ctx.shadowColor = '#FFFFFF'
-      ctx.shadowBlur = 15
-      ctx.fill()
-      ctx.shadowBlur = 0
+    const playerShotedImage = playerShotedImageRef.current
+    const currentPlayerImage = player.isHit && playerShotedImage?.complete ? playerShotedImage : playerImage
+
+    if (currentPlayerImage && currentPlayerImage.complete) {
+      // 受击时红色告警光效
+      if (player.isHit) {
+        ctx.beginPath()
+        ctx.arc(player.x, player.y, player.radius + 10, 0, Math.PI * 2)
+        ctx.fillStyle = 'rgba(255, 50, 50, 0.35)'
+        ctx.fill()
+
+        ctx.beginPath()
+        ctx.arc(player.x, player.y, player.radius + 16, 0, Math.PI * 2)
+        ctx.strokeStyle = 'rgba(255, 0, 0, 0.6)'
+        ctx.lineWidth = 3
+        ctx.stroke()
+      } else {
+        // 正常外发光
+        ctx.beginPath()
+        ctx.arc(player.x, player.y, player.radius + 5, 0, Math.PI * 2)
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.2)'
+        ctx.shadowColor = '#FFFFFF'
+        ctx.shadowBlur = 15
+        ctx.fill()
+        ctx.shadowBlur = 0
+      }
 
       // 绘制圆形裁剪的玩家图片（保持比例，居中裁剪）
       ctx.save()
@@ -947,15 +1089,15 @@ function GrassCutter() {
       ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2)
       ctx.closePath()
       ctx.clip()
-      
+
       // 计算保持比例的绘制尺寸
-      const imgW = playerImage.naturalWidth
-      const imgH = playerImage.naturalHeight
+      const imgW = currentPlayerImage.naturalWidth
+      const imgH = currentPlayerImage.naturalHeight
       const imgAspect = imgW / imgH
       const targetSize = player.radius * 2
-      
+
       let drawWidth: number, drawHeight: number, drawX: number, drawY: number
-      
+
       if (imgAspect > 1) {
         // 图片较宽，以高度为准
         drawHeight = targetSize
@@ -969,22 +1111,21 @@ function GrassCutter() {
         drawX = player.x - drawWidth / 2
         drawY = player.y - drawHeight / 2
       }
-      
-      ctx.drawImage(playerImage, drawX, drawY, drawWidth, drawHeight)
+
+      ctx.drawImage(currentPlayerImage, drawX, drawY, drawWidth, drawHeight)
       ctx.restore()
-      
-      // 玩家边框
+
+      // 玩家边框（受击时红色）
       ctx.beginPath()
       ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2)
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)'
-      ctx.lineWidth = 2
+      ctx.strokeStyle = player.isHit ? 'rgba(255, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.5)'
+      ctx.lineWidth = player.isHit ? 3 : 2
       ctx.stroke()
     } else {
       // 图片未加载时使用默认白球
-      // 外发光
       ctx.beginPath()
       ctx.arc(player.x, player.y, player.radius + 5, 0, Math.PI * 2)
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.1)'
+      ctx.fillStyle = player.isHit ? 'rgba(255, 50, 50, 0.25)' : 'rgba(255, 255, 255, 0.1)'
       ctx.fill()
 
       // 玩家身体
@@ -1003,13 +1144,64 @@ function GrassCutter() {
       ctx.shadowBlur = 0
     }
 
+    // 元宵被击中时的重庆话骚话气泡
+    if (player.speechTimer > 0 && player.speech) {
+      ctx.save()
+
+      ctx.font = 'bold 14px "PingFang SC", sans-serif'
+      const textWidth = ctx.measureText(player.speech).width
+      const padding = 12
+      const bubbleWidth = textWidth + padding * 2
+      const bubbleHeight = 28
+      const bubbleX = player.x
+      const bubbleY = player.y - player.radius - 45
+
+      const fadeStart = 300
+      const alpha = player.speechTimer < fadeStart ? player.speechTimer / fadeStart : 1
+      ctx.globalAlpha = alpha
+
+      // 红色告警气泡
+      ctx.fillStyle = 'rgba(220, 38, 38, 0.95)'
+      ctx.strokeStyle = 'rgba(252, 165, 165, 0.9)'
+      ctx.lineWidth = 2
+      ctx.beginPath()
+      ctx.roundRect(
+        bubbleX - bubbleWidth / 2,
+        bubbleY - bubbleHeight / 2,
+        bubbleWidth,
+        bubbleHeight,
+        8
+      )
+      ctx.fill()
+      ctx.stroke()
+
+      // 小三角（指向元宵）
+      ctx.beginPath()
+      ctx.moveTo(bubbleX - 6, bubbleY + bubbleHeight / 2)
+      ctx.lineTo(bubbleX + 6, bubbleY + bubbleHeight / 2)
+      ctx.lineTo(bubbleX, bubbleY + bubbleHeight / 2 + 8)
+      ctx.closePath()
+      ctx.fill()
+
+      // 文本
+      ctx.fillStyle = '#FFFFFF'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(player.speech, bubbleX, bubbleY)
+
+      ctx.restore()
+    }
+
     // ==================== 绘制 Boss ====================
     const boss = bossRef.current
     const bossImage = bossImageRef.current
+    const bossShotImage = bossShotImageRef.current
+    
+    const currentBossImage = boss?.isShooting && bossShotImage?.complete ? bossShotImage : bossImage
     
     if (boss && currentLevel === 10) {
       // Boss 本体
-      if (bossImage && bossImage.complete) {
+      if (currentBossImage && currentBossImage.complete) {
         ctx.save()
         
         // 受击闪烁效果
@@ -1017,12 +1209,18 @@ function GrassCutter() {
           ctx.globalAlpha = 0.6
         }
         
-        // 绘制 Boss 外发光
+        // 绘制 Boss 外发光（射击时偏橙/金）
         ctx.beginPath()
         ctx.arc(boss.x, boss.y, boss.radius + 8, 0, Math.PI * 2)
-        ctx.fillStyle = 'rgba(255, 71, 87, 0.3)'
-        ctx.shadowColor = '#FF4757'
-        ctx.shadowBlur = 25
+        if (boss.isShooting) {
+          ctx.fillStyle = 'rgba(245, 158, 11, 0.45)'
+          ctx.shadowColor = '#F59E0B'
+          ctx.shadowBlur = 32
+        } else {
+          ctx.fillStyle = 'rgba(255, 71, 87, 0.3)'
+          ctx.shadowColor = '#FF4757'
+          ctx.shadowBlur = 25
+        }
         ctx.fill()
         ctx.shadowBlur = 0
         
@@ -1033,8 +1231,8 @@ function GrassCutter() {
         ctx.clip()
         
         // 计算保持比例的绘制尺寸
-        const imgW = bossImage.naturalWidth
-        const imgH = bossImage.naturalHeight
+        const imgW = currentBossImage.naturalWidth
+        const imgH = currentBossImage.naturalHeight
         const imgAspect = imgW / imgH
         const targetSize = boss.radius * 2
         
@@ -1052,7 +1250,7 @@ function GrassCutter() {
           drawY = boss.y - drawHeight / 2
         }
         
-        ctx.drawImage(bossImage, drawX, drawY, drawWidth, drawHeight)
+        ctx.drawImage(currentBossImage, drawX, drawY, drawWidth, drawHeight)
         
         ctx.restore()
         
@@ -1131,33 +1329,26 @@ function GrassCutter() {
       }
     }
 
-    // ==================== 绘制 Boss 子弹 ====================
+    // ==================== 绘制 Boss 子弹（猫爪：橙/金系） ====================
     const bullets = bossBulletsRef.current
+    const bossPawColors = {
+      main: '#FCD34D',
+      pad: '#F97316',
+      stroke: '#92400E',
+    }
+
     for (const bullet of bullets) {
-      ctx.save()
-      
-      // 子弹发光效果
-      ctx.beginPath()
-      ctx.arc(bullet.x, bullet.y, bullet.radius + 4, 0, Math.PI * 2)
-      ctx.fillStyle = 'rgba(255, 71, 87, 0.4)'
-      ctx.shadowColor = '#FF4757'
-      ctx.shadowBlur = 15
-      ctx.fill()
-      
-      // 子弹本体
-      ctx.beginPath()
-      ctx.arc(bullet.x, bullet.y, bullet.radius, 0, Math.PI * 2)
-      const bulletGradient = ctx.createRadialGradient(
-        bullet.x - 2, bullet.y - 2, 0,
-        bullet.x, bullet.y, bullet.radius
+      const angle = (Math.atan2(bullet.dirY, bullet.dirX) * 180) / Math.PI
+      drawPawWeapon(
+        ctx,
+        bullet.x,
+        bullet.y,
+        angle,
+        Math.max(18, bullet.radius * 2.4),
+        bossPawColors.main,
+        bossPawColors.pad,
+        bossPawColors.stroke
       )
-      bulletGradient.addColorStop(0, '#FF6B6B')
-      bulletGradient.addColorStop(1, '#FF4757')
-      ctx.fillStyle = bulletGradient
-      ctx.fill()
-      
-      ctx.shadowBlur = 0
-      ctx.restore()
     }
 
   }, [currentLevel])
@@ -1284,6 +1475,11 @@ function GrassCutter() {
     setBossHp(0)
     setKillCount(0)
     playerRef.current.hp = INITIAL_PLAYER.maxHp
+    playerRef.current.bossTouchCooldown = 0
+    playerRef.current.isHit = false
+    playerRef.current.hitTimer = 0
+    playerRef.current.speech = ''
+    playerRef.current.speechTimer = 0
     setPlayerHp(INITIAL_PLAYER.maxHp)
     
     // 设置新关卡
@@ -1307,6 +1503,8 @@ function GrassCutter() {
             speechTimer: SPEECH_DURATION,
             shootTimer: BOSS_CONFIG.shootInterval,
             speechCooldown: BOSS_SPEECH_INTERVAL,
+            isShooting: false,
+            shootingTimer: 0,
           }
           bossRef.current = boss
           setBossHp(boss.hp)
@@ -1328,6 +1526,11 @@ function GrassCutter() {
     setKillCount(0)
     setTotalKills(0)
     playerRef.current.hp = INITIAL_PLAYER.maxHp
+    playerRef.current.bossTouchCooldown = 0
+    playerRef.current.isHit = false
+    playerRef.current.hitTimer = 0
+    playerRef.current.speech = ''
+    playerRef.current.speechTimer = 0
     playerRef.current.x = canvasSizeRef.current.width / 2
     playerRef.current.y = canvasSizeRef.current.height / 2
     setPlayerHp(INITIAL_PLAYER.maxHp)
@@ -1351,6 +1554,8 @@ function GrassCutter() {
             speechTimer: SPEECH_DURATION,
             shootTimer: BOSS_CONFIG.shootInterval,
             speechCooldown: BOSS_SPEECH_INTERVAL,
+            isShooting: false,
+            shootingTimer: 0,
           }
           bossRef.current = boss
           setBossHp(boss.hp)
@@ -1406,6 +1611,11 @@ function GrassCutter() {
     setPendingUpgrades(0)
     enemiesRef.current = []
     playerRef.current.hp = INITIAL_PLAYER.maxHp
+    playerRef.current.bossTouchCooldown = 0
+    playerRef.current.isHit = false
+    playerRef.current.hitTimer = 0
+    playerRef.current.speech = ''
+    playerRef.current.speechTimer = 0
     playerRef.current.x = canvasSizeRef.current.width / 2
     playerRef.current.y = canvasSizeRef.current.height / 2
     setPlayerHp(INITIAL_PLAYER.maxHp)
@@ -1452,6 +1662,11 @@ function GrassCutter() {
     setTotalKills(0)
     setPendingUpgrades(0)
     playerRef.current.hp = INITIAL_PLAYER.maxHp
+    playerRef.current.bossTouchCooldown = 0
+    playerRef.current.isHit = false
+    playerRef.current.hitTimer = 0
+    playerRef.current.speech = ''
+    playerRef.current.speechTimer = 0
     playerRef.current.x = canvasSizeRef.current.width / 2
     playerRef.current.y = canvasSizeRef.current.height / 2
     setPlayerHp(INITIAL_PLAYER.maxHp)
@@ -1481,6 +1696,8 @@ function GrassCutter() {
             speechTimer: SPEECH_DURATION,
             shootTimer: BOSS_CONFIG.shootInterval,
             speechCooldown: BOSS_SPEECH_INTERVAL,
+            isShooting: false,
+            shootingTimer: 0,
           }
           bossRef.current = boss
           setBossHp(boss.hp)
@@ -1686,9 +1903,16 @@ function GrassCutter() {
     playerImg.onload = () => {
       playerImageRef.current = playerImg
     }
+
+    // 加载玩家受击图片（元宵被打）
+    const playerShotedImg = new Image()
+    playerShotedImg.src = yuanxiaoShotedImg
+    playerShotedImg.onload = () => {
+      playerShotedImageRef.current = playerShotedImg
+    }
     
-    // 加载小兵图片（小蛋卷，多个样式）
-    const minionSrcs = [minionImg1, minionImg2]
+    // 加载小兵图片（小蛋卷 + monster，多个样式）
+    const minionSrcs = [minionImg1, minionImg2, monsterImg]
     const loadedImages: HTMLImageElement[] = []
     
     minionSrcs.forEach((src, index) => {
@@ -1705,6 +1929,13 @@ function GrassCutter() {
     bossImage.src = bossImg
     bossImage.onload = () => {
       bossImageRef.current = bossImage
+    }
+
+    // 加载 Boss 射击图片
+    const bossShotImage = new Image()
+    bossShotImage.src = bossShotImg
+    bossShotImage.onload = () => {
+      bossShotImageRef.current = bossShotImage
     }
     
     initGame(currentLevel, true)
@@ -1756,6 +1987,8 @@ function GrassCutter() {
               speechTimer: SPEECH_DURATION,
               shootTimer: BOSS_CONFIG.shootInterval,
               speechCooldown: BOSS_SPEECH_INTERVAL,
+              isShooting: false,
+              shootingTimer: 0,
             }
             bossRef.current = boss
             setBossHp(boss.hp)
