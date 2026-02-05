@@ -1,15 +1,25 @@
 import { Link } from 'react-router-dom'
 import styles from './GameCenter.module.css'
+import bossImg from '../assets/boss.png'
 
 interface GameItem {
   path: string
   name: string
   icon: string
+  iconImage?: string  // 可选的图片图标
   description: string
   gradient: string
 }
 
 const games: GameItem[] = [
+  {
+    path: '/grasscutter',
+    name: '鸡哔蛋卷大魔王',
+    icon: '🐔',
+    iconImage: bossImg,  // 使用蛋卷大魔王图片
+    description: '操控元宵灭蛋卷大魔王，10关挑战',
+    gradient: 'linear-gradient(135deg, #00D9FF 0%, #00FF88 100%)'
+  },
   {
     path: '/pokergame',
     name: '24点',
@@ -30,13 +40,6 @@ const games: GameItem[] = [
     icon: '🎲',
     description: '摇骰子，看运气',
     gradient: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)'
-  },
-  {
-    path: '/grasscutter',
-    name: '鸡哔蛋卷大魔王',
-    icon: '🐔',
-    description: '操控元宵灭蛋卷大魔王，10关挑战',
-    gradient: 'linear-gradient(135deg, #00D9FF 0%, #00FF88 100%)'
   }
 ]
 
@@ -57,7 +60,13 @@ function GameCenter() {
             className={styles.gameCard}
             style={{ '--card-gradient': game.gradient } as React.CSSProperties}
           >
-            <div className={styles.cardIcon}>{game.icon}</div>
+            <div className={styles.cardIcon}>
+              {game.iconImage ? (
+                <img src={game.iconImage} alt={game.name} className={styles.cardIconImage} />
+              ) : (
+                game.icon
+              )}
+            </div>
             <div className={styles.cardContent}>
               <h2 className={styles.cardTitle}>{game.name}</h2>
               <p className={styles.cardDesc}>{game.description}</p>

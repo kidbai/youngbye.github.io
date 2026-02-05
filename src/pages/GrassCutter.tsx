@@ -15,6 +15,7 @@ interface Player {
   hp: number
   maxHp: number
   speed: number
+  bossTouchCooldown: number // 触碰 Boss 的掉血冷却，避免每帧叠加秒死
 }
 
 interface Weapon {
@@ -144,6 +145,11 @@ const BOSS_CONFIG = {
   bulletRadius: 8,
 }
 
+// 触碰 Boss：伤害必须大于子弹伤害（bulletDamage=15），但要有冷却避免一贴就瞬间掉完血
+const BOSS_TOUCH_DAMAGE = 25
+const BOSS_TOUCH_COOLDOWN = 650 // ms
+const BOSS_KNOCKBACK_DISTANCE = 40 // 弹开后额外拉开距离（像素）
+
 const LEVEL_CONFIGS: LevelConfig[] = [
   { level: 1, enemyHp: 30, enemySpeed: 0.8, spawnInterval: 2500, killTarget: 10 },
   { level: 2, enemyHp: 40, enemySpeed: 1.0, spawnInterval: 2200, killTarget: 15 },
@@ -172,6 +178,7 @@ const INITIAL_PLAYER = {
   hp: 100,
   maxHp: 100,
   speed: 5, // 提高玩家速度以保持平衡
+  bossTouchCooldown: 0,
 }
 
 const UPGRADE_DAMAGE_INCREASE = 3
@@ -250,6 +257,8 @@ function GrassCutter() {
   const bulletIdCounter = useRef(0)
   const lastTimeRef = useRef(0)
   const canvasSizeRef = useRef({ width: 0, height: 0 })
+  // 用 ref 持有最新的 gameLoop，避免 rAF 递归调度导致闭包拿到旧 state（切关后 Boss/逻辑不生效）
+  const gameLoopCallbackRef = useRef<(timestamp: number) => void>(() => {})
   const minionImagesRef = useRef<HTMLImageElement[]>([])
   const playerImageRef = useRef<HTMLImageElement | null>(null)
   const bossImageRef = useRef<HTMLImageElement | null>(null)
@@ -321,6 +330,7 @@ function GrassCutter() {
     setScore(0)
     setPlayerHp(INITIAL_PLAYER.hp)
     playerRef.current.hp = INITIAL_PLAYER.hp
+    playerRef.current.bossTouchCooldown = 0
     setGameState('playing')
     setPendingUpgrades(0)
     
@@ -637,10 +647,25 @@ function GrassCutter() {
         }
       }
 
-      // 检测玩家与 Boss 碰撞（高伤害但不会一击必杀）
+      // 检测玩家与 Boss 碰撞（高伤害，但带冷却，避免每帧叠加导致“一碰就死”）
       const playerBossDist = getDistance(player.x, player.y, boss.x, boss.y)
-      if (playerBossDist < player.radius + boss.radius) {
-        damageToPlayer += 35 // 碰撞伤害35点，需要3次才会死亡
+      const collideDist = player.radius + boss.radius
+      if (playerBossDist < collideDist) {
+        // 受伤被弹开：强制把玩家推到 "碰撞距离 + 额外安全距离" 的位置，确保弹开后有明显间隔
+        let nx = 1
+        let ny = 0
+        if (playerBossDist > 0) {
+          nx = (player.x - boss.x) / playerBossDist
+          ny = (player.y - boss.y) / playerBossDist
+        }
+        const desiredDist = collideDist + BOSS_KNOCKBACK_DISTANCE
+        player.x = Math.max(player.radius, Math.min(width - player.radius, boss.x + nx * desiredDist))
+        player.y = Math.max(player.radius, Math.min(height - player.radius, boss.y + ny * desiredDist))
+
+        if (player.bossTouchCooldown <= 0) {
+          damageToPlayer += BOSS_TOUCH_DAMAGE
+          player.bossTouchCooldown = BOSS_TOUCH_COOLDOWN
+        }
       }
     }
 
@@ -680,6 +705,11 @@ function GrassCutter() {
       if (player.hp <= 0) {
         setGameState('dead')
       }
+    }
+
+    // 更新 Boss 触碰冷却
+    if (player.bossTouchCooldown > 0) {
+      player.bossTouchCooldown -= deltaTime
     }
   }, [gameState, currentLevel, checkWeaponCollision, checkPlayerCollision])
 
@@ -1147,8 +1177,14 @@ function GrassCutter() {
     
     renderGame()
     
-    gameLoopRef.current = requestAnimationFrame(gameLoop)
+    // 关键：递归调度时不要直接引用闭包里的 gameLoop
+    gameLoopRef.current = requestAnimationFrame((ts) => gameLoopCallbackRef.current(ts))
   }, [gameState, updateGame, renderGame])
+
+  // 同步最新 gameLoop 到 ref，避免切关后 rAF 仍跑旧逻辑
+  useEffect(() => {
+    gameLoopCallbackRef.current = gameLoop
+  }, [gameLoop])
 
   // 处理升级选择
   const handleUpgrade = useCallback((option: UpgradeOption) => {
@@ -1673,7 +1709,9 @@ function GrassCutter() {
     
     initGame(currentLevel, true)
     
-    gameLoopRef.current = requestAnimationFrame(gameLoop)
+    // 启动前先写入最新 gameLoop，避免首次调度拿到空函数
+    gameLoopCallbackRef.current = gameLoop
+    gameLoopRef.current = requestAnimationFrame((ts) => gameLoopCallbackRef.current(ts))
     
     return () => {
       if (gameLoopRef.current) {
