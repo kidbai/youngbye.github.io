@@ -35,7 +35,7 @@ const games: GameItem[] = [
     path: '/grasscutter',
     name: '鸡哔蛋卷大魔王',
     icon: '🐔',
-    description: '操控白球消灭敌人，10关挑战',
+    description: '操控元宵灭蛋卷大魔王，10关挑战',
     gradient: 'linear-gradient(135deg, #00D9FF 0%, #00FF88 100%)'
   }
 ]

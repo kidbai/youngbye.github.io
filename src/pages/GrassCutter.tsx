@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import styles from './GrassCutter.module.css'
 import minionImg1 from '../assets/minion.png'
 import minionImg2 from '../assets/minion2.png'
+import yuanxiaoImg from '../assets/yuanxiao.png'
+import bossImg from '../assets/boss.png'
 
 // ==================== 类型定义 ====================
 
@@ -40,6 +42,35 @@ interface Enemy {
   speed: number
   hitFlash: number
   imageIndex: number // 随机选择的图片索引
+  speech: string // 随机话术
+  speechTimer: number // 话术显示计时器
+}
+
+// Boss 类型
+interface Boss {
+  x: number
+  y: number
+  radius: number
+  hp: number
+  maxHp: number
+  speed: number
+  hitFlash: number
+  speech: string
+  speechTimer: number
+  shootTimer: number // 射击冷却计时器
+  speechCooldown: number // 骚话冷却计时器
+}
+
+// Boss 子弹类型
+interface BossBullet {
+  id: number
+  x: number
+  y: number
+  radius: number
+  dirX: number // 方向向量 X
+  dirY: number // 方向向量 Y
+  speed: number
+  damage: number
 }
 
 interface LevelConfig {
@@ -73,11 +104,45 @@ interface JoystickState {
 }
 
 type UpgradeOption = 'damage' | 'range' | 'speed' | 'weapon'
-type GameState = 'playing' | 'paused' | 'upgrading' | 'levelComplete' | 'dead' | 'victory'
+type GameState = 'playing' | 'paused' | 'upgrading' | 'levelComplete' | 'dead' | 'victory' | 'settings' | 'confirmExit' | 'confirmRestart'
 
 // ==================== 常量配置 ====================
 
 const STORAGE_KEY = 'grasscutter_save'
+
+// 小蛋卷的随机话术
+const ENEMY_SPEECHES = [
+  '我特喵来了！',
+  '小贼喵往哪里跑！',
+  '汝竟然是厚颜无耻之喵',
+]
+const SPEECH_DURATION = 2000 // 话术显示时长（毫秒）
+
+// 蛋卷大魔王的骚话（10种）
+const BOSS_SPEECHES = [
+  '本喵王驾到，还不速速跪下！',
+  '小小元宵，竟敢挑战本王！',
+  '看我的无敌喵喵拳！',
+  '哼，你的攻击给本王挠痒痒呢~',
+  '本王今天心情不好，拿你出气！',
+  '颤抖吧！蛋卷大魔王参上！',
+  '你已经被本王盯上了，逃不掉的！',
+  '就这？就这？就这？',
+  '本王的子弹可是会转弯的...骗你的！',
+  '元宵？听起来很好吃的样子！',
+]
+const BOSS_SPEECH_INTERVAL = 4000 // Boss 骚话间隔（毫秒）
+
+// Boss 配置
+const BOSS_CONFIG = {
+  radius: 50, // 100px 直径
+  hp: 2000,
+  speed: 1.2,
+  shootInterval: 1500, // 射击间隔（毫秒）
+  bulletSpeed: 4,
+  bulletDamage: 15,
+  bulletRadius: 8,
+}
 
 const LEVEL_CONFIGS: LevelConfig[] = [
   { level: 1, enemyHp: 30, enemySpeed: 0.8, spawnInterval: 2500, killTarget: 10 },
@@ -103,7 +168,7 @@ const INITIAL_WEAPON = {
 const MAX_WEAPONS = 6 // 最多6把武器
 
 const INITIAL_PLAYER = {
-  radius: 15,
+  radius: 30, // 60px 直径（元宵）
   hp: 100,
   maxHp: 100,
   speed: 5, // 提高玩家速度以保持平衡
@@ -182,13 +247,20 @@ function GrassCutter() {
   const gameLoopRef = useRef<number>(0)
   const spawnTimerRef = useRef<number>(0)
   const enemyIdCounter = useRef(0)
+  const bulletIdCounter = useRef(0)
   const lastTimeRef = useRef(0)
   const canvasSizeRef = useRef({ width: 0, height: 0 })
   const minionImagesRef = useRef<HTMLImageElement[]>([])
+  const playerImageRef = useRef<HTMLImageElement | null>(null)
+  const bossImageRef = useRef<HTMLImageElement | null>(null)
+  
+  // Boss 相关
+  const bossRef = useRef<Boss | null>(null)
+  const bossBulletsRef = useRef<BossBullet[]>([])
   
   // UI 状态 (使用 state 触发重渲染)
   const [gameState, setGameState] = useState<GameState>('playing')
-  const [currentLevel, setCurrentLevel] = useState(1)
+  const [currentLevel, setCurrentLevel] = useState(1) // 恢复默认第1关
   const [score, setScore] = useState(0)
   const [highScore, setHighScore] = useState(0)
   const [killCount, setKillCount] = useState(0)
@@ -197,6 +269,8 @@ function GrassCutter() {
   const [playerHp, setPlayerHp] = useState(INITIAL_PLAYER.hp)
   const [pendingUpgrades, setPendingUpgrades] = useState(0)
   const [joystickOffset, setJoystickOffset] = useState({ x: 0, y: 0 })
+  const [showDevMenu, setShowDevMenu] = useState(false) // 开发者菜单
+  const [bossHp, setBossHp] = useState(0) // Boss 血量显示
 
   // 初始化游戏
   const initGame = useCallback((levelNum: number, loadSave: boolean = false) => {
@@ -207,6 +281,7 @@ function GrassCutter() {
     canvas.width = rect.width
     canvas.height = rect.height
     canvasSizeRef.current = { width: rect.width, height: rect.height }
+    console.log('[Init] Canvas initialized:', { width: rect.width, height: rect.height })
 
     // 初始化玩家位置到画布中央
     playerRef.current = {
@@ -248,10 +323,15 @@ function GrassCutter() {
     playerRef.current.hp = INITIAL_PLAYER.hp
     setGameState('playing')
     setPendingUpgrades(0)
+    
+    console.log('[Init] Game initialized, levelNum:', levelNum)
   }, [])
 
-  // 生成敌人
+  // 生成敌人（第10关不生成小兵，只有Boss）
   const spawnEnemy = useCallback(() => {
+    // Boss 关卡不生成小兵
+    if (currentLevel === 10) return
+    
     const { width, height } = canvasSizeRef.current
     if (width === 0 || height === 0) return
 
@@ -282,16 +362,41 @@ function GrassCutter() {
       id: enemyIdCounter.current++,
       x,
       y,
-      radius: 12,
+      radius: 30, // 60px 直径（小蛋卷）
       hp: config.enemyHp,
       maxHp: config.enemyHp,
       speed: config.enemySpeed,
       hitFlash: 0,
       imageIndex: Math.floor(Math.random() * 2), // 随机选择 0 或 1
+      speech: ENEMY_SPEECHES[Math.floor(Math.random() * ENEMY_SPEECHES.length)],
+      speechTimer: SPEECH_DURATION, // 初始显示话术
     }
 
     enemiesRef.current.push(enemy)
   }, [currentLevel])
+
+  // 生成 Boss（第10关）
+  const spawnBoss = useCallback(() => {
+    const { width, height } = canvasSizeRef.current
+    if (width === 0 || height === 0) return
+
+    const boss: Boss = {
+      x: width / 2,
+      y: 100, // 从顶部出现
+      radius: BOSS_CONFIG.radius,
+      hp: BOSS_CONFIG.hp,
+      maxHp: BOSS_CONFIG.hp,
+      speed: BOSS_CONFIG.speed,
+      hitFlash: 0,
+      speech: BOSS_SPEECHES[Math.floor(Math.random() * BOSS_SPEECHES.length)],
+      speechTimer: SPEECH_DURATION,
+      shootTimer: BOSS_CONFIG.shootInterval,
+      speechCooldown: BOSS_SPEECH_INTERVAL,
+    }
+
+    bossRef.current = boss
+    setBossHp(boss.hp)
+  }, [])
 
   // 检测单把武器与敌人的碰撞
   const checkSingleWeaponCollision = useCallback((enemy: Enemy, weapon: Weapon): boolean => {
@@ -387,6 +492,11 @@ function GrassCutter() {
         enemy.hitFlash -= deltaTime
       }
 
+      // 减少话术显示计时
+      if (enemy.speechTimer > 0) {
+        enemy.speechTimer -= deltaTime
+      }
+
       // 检测武器碰撞（返回总伤害）
       const weaponDamage = checkWeaponCollision(enemy)
       if (weaponDamage > 0) {
@@ -413,15 +523,153 @@ function GrassCutter() {
       const killsThisFrame = deadEnemies.length
       setKillCount(prev => {
         const newCount = prev + killsThisFrame
-        // 检查升级
-        const newUpgrades = Math.floor(newCount / KILLS_PER_UPGRADE) - Math.floor(prev / KILLS_PER_UPGRADE)
-        if (newUpgrades > 0) {
-          setPendingUpgrades(p => p + newUpgrades)
+        // 检查升级（Boss关卡不通过击杀升级）
+        if (currentLevel !== 10) {
+          const newUpgrades = Math.floor(newCount / KILLS_PER_UPGRADE) - Math.floor(prev / KILLS_PER_UPGRADE)
+          if (newUpgrades > 0) {
+            setPendingUpgrades(p => p + newUpgrades)
+          }
         }
         return newCount
       })
       setTotalKills(prev => prev + killsThisFrame)
       setScore(prev => prev + killsThisFrame * 10 * currentLevel)
+    }
+
+    // ==================== Boss 战斗逻辑 ====================
+    const boss = bossRef.current
+    if (boss && currentLevel === 10) {
+      // Boss 移动（缓慢追踪玩家，但保持一定距离）
+      const bossTargetDist = 200 // Boss 与玩家保持的距离
+      const dx = player.x - boss.x
+      const dy = player.y - boss.y
+      const dist = Math.sqrt(dx * dx + dy * dy)
+      
+      if (dist > bossTargetDist + 50) {
+        // 靠近玩家
+        boss.x += (dx / dist) * boss.speed
+        boss.y += (dy / dist) * boss.speed
+      } else if (dist < bossTargetDist - 50) {
+        // 远离玩家
+        boss.x -= (dx / dist) * boss.speed * 0.5
+        boss.y -= (dy / dist) * boss.speed * 0.5
+      }
+      
+      // 限制 Boss 在画布内
+      boss.x = Math.max(boss.radius, Math.min(width - boss.radius, boss.x))
+      boss.y = Math.max(boss.radius, Math.min(height - boss.radius, boss.y))
+
+      // 减少受击闪烁计时
+      if (boss.hitFlash > 0) {
+        boss.hitFlash -= deltaTime
+      }
+
+      // 减少话术显示计时
+      if (boss.speechTimer > 0) {
+        boss.speechTimer -= deltaTime
+      }
+
+      // Boss 骚话冷却
+      boss.speechCooldown -= deltaTime
+      if (boss.speechCooldown <= 0) {
+        boss.speech = BOSS_SPEECHES[Math.floor(Math.random() * BOSS_SPEECHES.length)]
+        boss.speechTimer = SPEECH_DURATION
+        boss.speechCooldown = BOSS_SPEECH_INTERVAL
+      }
+
+      // Boss 射击冷却
+      boss.shootTimer -= deltaTime
+      if (boss.shootTimer <= 0) {
+        // 计算射击方向（瞄准玩家当前位置，不追踪）
+        const shootDx = player.x - boss.x
+        const shootDy = player.y - boss.y
+        const shootDist = Math.sqrt(shootDx * shootDx + shootDy * shootDy)
+        
+        if (shootDist > 0) {
+          const bullet: BossBullet = {
+            id: bulletIdCounter.current++,
+            x: boss.x,
+            y: boss.y,
+            radius: BOSS_CONFIG.bulletRadius,
+            dirX: shootDx / shootDist,
+            dirY: shootDy / shootDist,
+            speed: BOSS_CONFIG.bulletSpeed,
+            damage: BOSS_CONFIG.bulletDamage,
+          }
+          bossBulletsRef.current.push(bullet)
+        }
+        
+        boss.shootTimer = BOSS_CONFIG.shootInterval
+      }
+
+      // 检测武器对 Boss 的伤害
+      for (const weapon of weaponState.weapons) {
+        const angleRad = (weapon.angle * Math.PI) / 180
+        const weaponEndX = player.x + Math.cos(angleRad) * weapon.range
+        const weaponEndY = player.y + Math.sin(angleRad) * weapon.range
+
+        // 计算 Boss 到武器线段的距离
+        const wdx = weaponEndX - player.x
+        const wdy = weaponEndY - player.y
+        const wlen = Math.sqrt(wdx * wdx + wdy * wdy)
+        
+        if (wlen > 0) {
+          const t = Math.max(0, Math.min(1, 
+            ((boss.x - player.x) * wdx + (boss.y - player.y) * wdy) / (wlen * wlen)
+          ))
+          
+          const closestX = player.x + t * wdx
+          const closestY = player.y + t * wdy
+          
+          const hitDist = getDistance(boss.x, boss.y, closestX, closestY)
+          
+          if (hitDist < boss.radius + weapon.width / 2) {
+            boss.hp -= weapon.damage
+            boss.hitFlash = 100
+            setBossHp(boss.hp)
+            
+            if (boss.hp <= 0) {
+              bossRef.current = null
+              bossBulletsRef.current = []
+              setGameState('victory')
+            }
+          }
+        }
+      }
+
+      // 检测玩家与 Boss 碰撞（高伤害但不会一击必杀）
+      const playerBossDist = getDistance(player.x, player.y, boss.x, boss.y)
+      if (playerBossDist < player.radius + boss.radius) {
+        damageToPlayer += 35 // 碰撞伤害35点，需要3次才会死亡
+      }
+    }
+
+    // ==================== Boss 子弹更新 ====================
+    const bullets = bossBulletsRef.current
+    const deadBullets: number[] = []
+
+    for (const bullet of bullets) {
+      // 子弹移动（直线，不追踪）
+      bullet.x += bullet.dirX * bullet.speed
+      bullet.y += bullet.dirY * bullet.speed
+
+      // 检测子弹是否出界
+      if (bullet.x < -50 || bullet.x > width + 50 || bullet.y < -50 || bullet.y > height + 50) {
+        deadBullets.push(bullet.id)
+        continue
+      }
+
+      // 检测子弹与玩家碰撞
+      const bulletDist = getDistance(player.x, player.y, bullet.x, bullet.y)
+      if (bulletDist < player.radius + bullet.radius) {
+        damageToPlayer += bullet.damage
+        deadBullets.push(bullet.id)
+      }
+    }
+
+    // 移除出界或命中的子弹
+    if (deadBullets.length > 0) {
+      bossBulletsRef.current = bullets.filter(b => !deadBullets.includes(b.id))
     }
 
     // 应用伤害
@@ -489,21 +737,33 @@ function GrassCutter() {
           ctx.globalAlpha = 0.6
         }
         
-        // 绘制圆形裁剪的图片
+        // 绘制圆形裁剪的图片（保持比例）
         ctx.beginPath()
         ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI * 2)
         ctx.closePath()
         ctx.clip()
         
-        // 绘制图片（居中）
-        const imgSize = enemy.radius * 2
-        ctx.drawImage(
-          minionImage,
-          enemy.x - enemy.radius,
-          enemy.y - enemy.radius,
-          imgSize,
-          imgSize
-        )
+        // 计算保持比例的绘制尺寸
+        const imgW = minionImage.naturalWidth
+        const imgH = minionImage.naturalHeight
+        const imgAspect = imgW / imgH
+        const targetSize = enemy.radius * 2
+        
+        let drawWidth: number, drawHeight: number, drawX: number, drawY: number
+        
+        if (imgAspect > 1) {
+          drawHeight = targetSize
+          drawWidth = targetSize * imgAspect
+          drawX = enemy.x - drawWidth / 2
+          drawY = enemy.y - drawHeight / 2
+        } else {
+          drawWidth = targetSize
+          drawHeight = targetSize / imgAspect
+          drawX = enemy.x - drawWidth / 2
+          drawY = enemy.y - drawHeight / 2
+        }
+        
+        ctx.drawImage(minionImage, drawX, drawY, drawWidth, drawHeight)
         
         ctx.restore()
         
@@ -549,6 +809,56 @@ function GrassCutter() {
       const hpPercent = enemy.hp / enemy.maxHp
       ctx.fillStyle = hpPercent > 0.5 ? '#2ED573' : hpPercent > 0.25 ? '#FFA502' : '#FF4757'
       ctx.fillRect(hpBarX, hpBarY, hpBarWidth * hpPercent, hpBarHeight)
+
+      // 绘制话术气泡
+      if (enemy.speechTimer > 0 && enemy.speech) {
+        ctx.save()
+        
+        // 气泡位置（在敌人头顶上方）
+        const bubbleX = enemy.x
+        const bubbleY = enemy.y - enemy.radius - 30
+        
+        // 测量文本宽度
+        ctx.font = 'bold 12px "PingFang SC", sans-serif'
+        const textWidth = ctx.measureText(enemy.speech).width
+        const padding = 10
+        const bubbleWidth = textWidth + padding * 2
+        const bubbleHeight = 24
+        
+        // 计算透明度（最后500ms淡出）
+        const fadeStart = 500
+        const alpha = enemy.speechTimer < fadeStart ? enemy.speechTimer / fadeStart : 1
+        
+        // 绘制气泡背景
+        ctx.globalAlpha = alpha
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.95)'
+        ctx.beginPath()
+        const cornerRadius = 8
+        ctx.roundRect(
+          bubbleX - bubbleWidth / 2,
+          bubbleY - bubbleHeight / 2,
+          bubbleWidth,
+          bubbleHeight,
+          cornerRadius
+        )
+        ctx.fill()
+        
+        // 绘制小三角（指向敌人）
+        ctx.beginPath()
+        ctx.moveTo(bubbleX - 6, bubbleY + bubbleHeight / 2)
+        ctx.lineTo(bubbleX + 6, bubbleY + bubbleHeight / 2)
+        ctx.lineTo(bubbleX, bubbleY + bubbleHeight / 2 + 8)
+        ctx.closePath()
+        ctx.fill()
+        
+        // 绘制文本
+        ctx.fillStyle = '#1a1a2e'
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText(enemy.speech, bubbleX, bubbleY)
+        
+        ctx.restore()
+      }
     }
 
     // 绘制所有武器
@@ -589,29 +899,238 @@ function GrassCutter() {
     
     ctx.shadowBlur = 0
 
-    // 绘制玩家
-    // 外发光
-    ctx.beginPath()
-    ctx.arc(player.x, player.y, player.radius + 5, 0, Math.PI * 2)
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.1)'
-    ctx.fill()
+    // 绘制玩家（元宵）
+    const playerImage = playerImageRef.current
+    if (playerImage && playerImage.complete) {
+      // 外发光
+      ctx.beginPath()
+      ctx.arc(player.x, player.y, player.radius + 5, 0, Math.PI * 2)
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.2)'
+      ctx.shadowColor = '#FFFFFF'
+      ctx.shadowBlur = 15
+      ctx.fill()
+      ctx.shadowBlur = 0
 
-    // 玩家身体
-    ctx.beginPath()
-    ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2)
-    const playerGradient = ctx.createRadialGradient(
-      player.x - 5, player.y - 5, 0,
-      player.x, player.y, player.radius
-    )
-    playerGradient.addColorStop(0, '#FFFFFF')
-    playerGradient.addColorStop(1, '#B8C5D6')
-    ctx.fillStyle = playerGradient
-    ctx.shadowColor = '#FFFFFF'
-    ctx.shadowBlur = 20
-    ctx.fill()
-    ctx.shadowBlur = 0
+      // 绘制圆形裁剪的玩家图片（保持比例，居中裁剪）
+      ctx.save()
+      ctx.beginPath()
+      ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2)
+      ctx.closePath()
+      ctx.clip()
+      
+      // 计算保持比例的绘制尺寸
+      const imgW = playerImage.naturalWidth
+      const imgH = playerImage.naturalHeight
+      const imgAspect = imgW / imgH
+      const targetSize = player.radius * 2
+      
+      let drawWidth: number, drawHeight: number, drawX: number, drawY: number
+      
+      if (imgAspect > 1) {
+        // 图片较宽，以高度为准
+        drawHeight = targetSize
+        drawWidth = targetSize * imgAspect
+        drawX = player.x - drawWidth / 2
+        drawY = player.y - drawHeight / 2
+      } else {
+        // 图片较高或正方形，以宽度为准
+        drawWidth = targetSize
+        drawHeight = targetSize / imgAspect
+        drawX = player.x - drawWidth / 2
+        drawY = player.y - drawHeight / 2
+      }
+      
+      ctx.drawImage(playerImage, drawX, drawY, drawWidth, drawHeight)
+      ctx.restore()
+      
+      // 玩家边框
+      ctx.beginPath()
+      ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2)
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)'
+      ctx.lineWidth = 2
+      ctx.stroke()
+    } else {
+      // 图片未加载时使用默认白球
+      // 外发光
+      ctx.beginPath()
+      ctx.arc(player.x, player.y, player.radius + 5, 0, Math.PI * 2)
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.1)'
+      ctx.fill()
 
-  }, [])
+      // 玩家身体
+      ctx.beginPath()
+      ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2)
+      const playerGradient = ctx.createRadialGradient(
+        player.x - 5, player.y - 5, 0,
+        player.x, player.y, player.radius
+      )
+      playerGradient.addColorStop(0, '#FFFFFF')
+      playerGradient.addColorStop(1, '#B8C5D6')
+      ctx.fillStyle = playerGradient
+      ctx.shadowColor = '#FFFFFF'
+      ctx.shadowBlur = 20
+      ctx.fill()
+      ctx.shadowBlur = 0
+    }
+
+    // ==================== 绘制 Boss ====================
+    const boss = bossRef.current
+    const bossImage = bossImageRef.current
+    
+    if (boss && currentLevel === 10) {
+      // Boss 本体
+      if (bossImage && bossImage.complete) {
+        ctx.save()
+        
+        // 受击闪烁效果
+        if (boss.hitFlash > 0) {
+          ctx.globalAlpha = 0.6
+        }
+        
+        // 绘制 Boss 外发光
+        ctx.beginPath()
+        ctx.arc(boss.x, boss.y, boss.radius + 8, 0, Math.PI * 2)
+        ctx.fillStyle = 'rgba(255, 71, 87, 0.3)'
+        ctx.shadowColor = '#FF4757'
+        ctx.shadowBlur = 25
+        ctx.fill()
+        ctx.shadowBlur = 0
+        
+        // 绘制圆形裁剪的 Boss 图片（保持比例）
+        ctx.beginPath()
+        ctx.arc(boss.x, boss.y, boss.radius, 0, Math.PI * 2)
+        ctx.closePath()
+        ctx.clip()
+        
+        // 计算保持比例的绘制尺寸
+        const imgW = bossImage.naturalWidth
+        const imgH = bossImage.naturalHeight
+        const imgAspect = imgW / imgH
+        const targetSize = boss.radius * 2
+        
+        let drawWidth: number, drawHeight: number, drawX: number, drawY: number
+        
+        if (imgAspect > 1) {
+          drawHeight = targetSize
+          drawWidth = targetSize * imgAspect
+          drawX = boss.x - drawWidth / 2
+          drawY = boss.y - drawHeight / 2
+        } else {
+          drawWidth = targetSize
+          drawHeight = targetSize / imgAspect
+          drawX = boss.x - drawWidth / 2
+          drawY = boss.y - drawHeight / 2
+        }
+        
+        ctx.drawImage(bossImage, drawX, drawY, drawWidth, drawHeight)
+        
+        ctx.restore()
+        
+        // 受击时绘制红色边框
+        if (boss.hitFlash > 0) {
+          ctx.beginPath()
+          ctx.arc(boss.x, boss.y, boss.radius, 0, Math.PI * 2)
+          ctx.strokeStyle = '#FF4757'
+          ctx.lineWidth = 5
+          ctx.stroke()
+        } else {
+          // 正常边框（金色）
+          ctx.beginPath()
+          ctx.arc(boss.x, boss.y, boss.radius, 0, Math.PI * 2)
+          ctx.strokeStyle = '#FFD700'
+          ctx.lineWidth = 3
+          ctx.stroke()
+        }
+      } else {
+        // 图片未加载时使用默认样式
+        ctx.beginPath()
+        ctx.arc(boss.x, boss.y, boss.radius, 0, Math.PI * 2)
+        ctx.fillStyle = boss.hitFlash > 0 ? '#FF4757' : '#8B0000'
+        ctx.shadowColor = '#FF4757'
+        ctx.shadowBlur = 20
+        ctx.fill()
+        ctx.shadowBlur = 0
+        
+        ctx.strokeStyle = '#FFD700'
+        ctx.lineWidth = 4
+        ctx.stroke()
+      }
+
+      // Boss 话术气泡
+      if (boss.speechTimer > 0 && boss.speech) {
+        ctx.save()
+        
+        const bubbleX = boss.x
+        const bubbleY = boss.y - boss.radius - 40
+        
+        ctx.font = 'bold 14px "PingFang SC", sans-serif'
+        const textWidth = ctx.measureText(boss.speech).width
+        const padding = 12
+        const bubbleWidth = textWidth + padding * 2
+        const bubbleHeight = 30
+        
+        const fadeStart = 500
+        const alpha = boss.speechTimer < fadeStart ? boss.speechTimer / fadeStart : 1
+        
+        // Boss 气泡使用红色调
+        ctx.globalAlpha = alpha
+        ctx.fillStyle = 'rgba(255, 71, 87, 0.95)'
+        ctx.beginPath()
+        ctx.roundRect(
+          bubbleX - bubbleWidth / 2,
+          bubbleY - bubbleHeight / 2,
+          bubbleWidth,
+          bubbleHeight,
+          10
+        )
+        ctx.fill()
+        
+        ctx.beginPath()
+        ctx.moveTo(bubbleX - 8, bubbleY + bubbleHeight / 2)
+        ctx.lineTo(bubbleX + 8, bubbleY + bubbleHeight / 2)
+        ctx.lineTo(bubbleX, bubbleY + bubbleHeight / 2 + 10)
+        ctx.closePath()
+        ctx.fill()
+        
+        ctx.fillStyle = '#FFFFFF'
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText(boss.speech, bubbleX, bubbleY)
+        
+        ctx.restore()
+      }
+    }
+
+    // ==================== 绘制 Boss 子弹 ====================
+    const bullets = bossBulletsRef.current
+    for (const bullet of bullets) {
+      ctx.save()
+      
+      // 子弹发光效果
+      ctx.beginPath()
+      ctx.arc(bullet.x, bullet.y, bullet.radius + 4, 0, Math.PI * 2)
+      ctx.fillStyle = 'rgba(255, 71, 87, 0.4)'
+      ctx.shadowColor = '#FF4757'
+      ctx.shadowBlur = 15
+      ctx.fill()
+      
+      // 子弹本体
+      ctx.beginPath()
+      ctx.arc(bullet.x, bullet.y, bullet.radius, 0, Math.PI * 2)
+      const bulletGradient = ctx.createRadialGradient(
+        bullet.x - 2, bullet.y - 2, 0,
+        bullet.x, bullet.y, bullet.radius
+      )
+      bulletGradient.addColorStop(0, '#FF6B6B')
+      bulletGradient.addColorStop(1, '#FF4757')
+      ctx.fillStyle = bulletGradient
+      ctx.fill()
+      
+      ctx.shadowBlur = 0
+      ctx.restore()
+    }
+
+  }, [currentLevel])
 
   // 游戏主循环
   const gameLoop = useCallback((timestamp: number) => {
@@ -684,10 +1203,31 @@ function GrassCutter() {
     }
   }, [currentLevel, totalKills])
 
+  // 放弃本次升级
+  const handleSkipUpgrade = useCallback(() => {
+    setPendingUpgrades(prev => {
+      const remaining = prev - 1
+      if (remaining <= 0) {
+        setGameState('playing')
+      }
+      return remaining
+    })
+
+    // 检查是否完成关卡
+    const config = LEVEL_CONFIGS[currentLevel - 1]
+    if (totalKills >= config.killTarget) {
+      if (currentLevel >= 10) {
+        setGameState('victory')
+      } else {
+        setGameState('levelComplete')
+      }
+    }
+  }, [currentLevel, totalKills])
+
   // 进入下一关
   const handleNextLevel = useCallback(() => {
     const newLevel = currentLevel + 1
-    setCurrentLevel(newLevel)
+    console.log('[Game] Advancing to level:', newLevel)
     
     // 保存进度
     const weaponState = weaponStateRef.current
@@ -703,23 +1243,231 @@ function GrassCutter() {
     
     // 重置关卡
     enemiesRef.current = []
+    bossRef.current = null
+    bossBulletsRef.current = []
+    setBossHp(0)
     setKillCount(0)
     playerRef.current.hp = INITIAL_PLAYER.maxHp
     setPlayerHp(INITIAL_PLAYER.maxHp)
+    
+    // 设置新关卡
+    setCurrentLevel(newLevel)
     setGameState('playing')
+    
+    // 如果是第10关，延迟生成 Boss
+    if (newLevel === 10) {
+      setTimeout(() => {
+        const { width, height } = canvasSizeRef.current
+        if (width > 0 && height > 0 && !bossRef.current) {
+          const boss: Boss = {
+            x: width / 2,
+            y: 100,
+            radius: BOSS_CONFIG.radius,
+            hp: BOSS_CONFIG.hp,
+            maxHp: BOSS_CONFIG.hp,
+            speed: BOSS_CONFIG.speed,
+            hitFlash: 0,
+            speech: BOSS_SPEECHES[Math.floor(Math.random() * BOSS_SPEECHES.length)],
+            speechTimer: SPEECH_DURATION,
+            shootTimer: BOSS_CONFIG.shootInterval,
+            speechCooldown: BOSS_SPEECH_INTERVAL,
+          }
+          bossRef.current = boss
+          setBossHp(boss.hp)
+          console.log('[Game] Boss spawned for level 10:', boss)
+        }
+      }, 100)
+    }
   }, [currentLevel, highScore, score, playerLevel])
 
   // 死亡后重试
   const handleRetry = useCallback(() => {
+    console.log('[Game] Retrying level:', currentLevel)
+    
     // 重置当前关卡，保留武器升级
     enemiesRef.current = []
+    bossRef.current = null
+    bossBulletsRef.current = []
+    setBossHp(0)
     setKillCount(0)
     setTotalKills(0)
     playerRef.current.hp = INITIAL_PLAYER.maxHp
     playerRef.current.x = canvasSizeRef.current.width / 2
     playerRef.current.y = canvasSizeRef.current.height / 2
     setPlayerHp(INITIAL_PLAYER.maxHp)
+    
     setGameState('playing')
+    
+    // 如果是第10关，延迟重新生成 Boss
+    if (currentLevel === 10) {
+      setTimeout(() => {
+        const { width, height } = canvasSizeRef.current
+        if (width > 0 && height > 0 && !bossRef.current) {
+          const boss: Boss = {
+            x: width / 2,
+            y: 100,
+            radius: BOSS_CONFIG.radius,
+            hp: BOSS_CONFIG.hp,
+            maxHp: BOSS_CONFIG.hp,
+            speed: BOSS_CONFIG.speed,
+            hitFlash: 0,
+            speech: BOSS_SPEECHES[Math.floor(Math.random() * BOSS_SPEECHES.length)],
+            speechTimer: SPEECH_DURATION,
+            shootTimer: BOSS_CONFIG.shootInterval,
+            speechCooldown: BOSS_SPEECH_INTERVAL,
+          }
+          bossRef.current = boss
+          setBossHp(boss.hp)
+          console.log('[Game] Boss respawned for retry:', boss)
+        }
+      }, 100)
+    }
+  }, [currentLevel])
+
+  // 保存当前游戏进度
+  const saveCurrentProgress = useCallback(() => {
+    const weaponState = weaponStateRef.current
+    saveGame({
+      currentLevel,
+      highScore: Math.max(highScore, score),
+      weaponDamage: weaponState.baseDamage,
+      weaponRange: weaponState.baseRange,
+      weaponRotationSpeed: weaponState.baseRotationSpeed,
+      weaponCount: weaponState.weapons.length,
+      playerLevel,
+    })
+  }, [currentLevel, highScore, score, playerLevel])
+
+  // 打开设置菜单
+  const handleOpenSettings = useCallback(() => {
+    setGameState('settings')
+  }, [])
+
+  // 关闭设置菜单，继续游戏
+  const handleCloseSettings = useCallback(() => {
+    setGameState('playing')
+  }, [])
+
+  // 请求重新开始游戏
+  const handleRequestRestart = useCallback(() => {
+    setGameState('confirmRestart')
+  }, [])
+
+  // 确认重新开始
+  const handleConfirmRestart = useCallback(() => {
+    // 重置所有游戏数据
+    weaponStateRef.current = {
+      weapons: [{ ...INITIAL_WEAPON }],
+      baseDamage: INITIAL_WEAPON.damage,
+      baseRange: INITIAL_WEAPON.range,
+      baseRotationSpeed: INITIAL_WEAPON.rotationSpeed,
+    }
+    setCurrentLevel(1)
+    setPlayerLevel(1)
+    setKillCount(0)
+    setTotalKills(0)
+    setScore(0)
+    setPendingUpgrades(0)
+    enemiesRef.current = []
+    playerRef.current.hp = INITIAL_PLAYER.maxHp
+    playerRef.current.x = canvasSizeRef.current.width / 2
+    playerRef.current.y = canvasSizeRef.current.height / 2
+    setPlayerHp(INITIAL_PLAYER.maxHp)
+    
+    // 清除存档
+    localStorage.removeItem(STORAGE_KEY)
+    
+    setGameState('playing')
+  }, [])
+
+  // 请求退出游戏
+  const handleRequestExit = useCallback(() => {
+    setGameState('confirmExit')
+  }, [])
+
+  // 确认退出游戏
+  const handleConfirmExit = useCallback(() => {
+    saveCurrentProgress()
+    navigate('/')
+  }, [navigate, saveCurrentProgress])
+
+  // 取消确认弹窗，返回设置
+  const handleCancelConfirm = useCallback(() => {
+    setGameState('settings')
+  }, [])
+
+  // ==================== 开发者调试功能 ====================
+  
+  // 切换开发者菜单
+  const toggleDevMenu = useCallback(() => {
+    setShowDevMenu(prev => !prev)
+  }, [])
+
+  // 跳转到指定关卡
+  const handleJumpToLevel = useCallback((targetLevel: number) => {
+    console.log('[Dev] ========== Jumping to level:', targetLevel, '==========')
+    
+    // 重置游戏状态
+    enemiesRef.current = []
+    bossRef.current = null
+    bossBulletsRef.current = []
+    setBossHp(0)
+    setKillCount(0)
+    setTotalKills(0)
+    setPendingUpgrades(0)
+    playerRef.current.hp = INITIAL_PLAYER.maxHp
+    playerRef.current.x = canvasSizeRef.current.width / 2
+    playerRef.current.y = canvasSizeRef.current.height / 2
+    setPlayerHp(INITIAL_PLAYER.maxHp)
+    setShowDevMenu(false)
+    
+    // 设置关卡
+    setCurrentLevel(targetLevel)
+    setGameState('playing')
+    
+    // 如果是第10关，延迟生成 Boss 确保状态已更新
+    if (targetLevel === 10) {
+      setTimeout(() => {
+        console.log('[Dev] Delayed boss spawn for level 10')
+        const { width, height } = canvasSizeRef.current
+        console.log('[Dev] Canvas dimensions:', { width, height })
+        
+        if (width > 0 && height > 0 && !bossRef.current) {
+          const boss: Boss = {
+            x: width / 2,
+            y: 100,
+            radius: BOSS_CONFIG.radius,
+            hp: BOSS_CONFIG.hp,
+            maxHp: BOSS_CONFIG.hp,
+            speed: BOSS_CONFIG.speed,
+            hitFlash: 0,
+            speech: BOSS_SPEECHES[Math.floor(Math.random() * BOSS_SPEECHES.length)],
+            speechTimer: SPEECH_DURATION,
+            shootTimer: BOSS_CONFIG.shootInterval,
+            speechCooldown: BOSS_SPEECH_INTERVAL,
+          }
+          bossRef.current = boss
+          setBossHp(boss.hp)
+          console.log('[Dev] ✅ Boss spawned:', boss)
+        }
+      }, 100)
+    }
+  }, [])
+
+  // 给予满级武器（用于测试）
+  const handleMaxWeapons = useCallback(() => {
+    const weaponState = weaponStateRef.current
+    weaponState.baseDamage = 50
+    weaponState.baseRange = 120
+    weaponState.baseRotationSpeed = 6
+    weaponState.weapons = createWeapons(
+      MAX_WEAPONS,
+      weaponState.baseDamage,
+      weaponState.baseRange,
+      weaponState.baseRotationSpeed
+    )
+    setPlayerLevel(20)
+    setShowDevMenu(false)
   }, [])
 
   // 摇杆事件处理 - 使用 ref 存储回调以便在 useEffect 中使用
@@ -896,7 +1644,14 @@ function GrassCutter() {
 
   // 初始化和游戏循环
   useEffect(() => {
-    // 加载小兵图片（多个样式）
+    // 加载玩家图片（元宵）
+    const playerImg = new Image()
+    playerImg.src = yuanxiaoImg
+    playerImg.onload = () => {
+      playerImageRef.current = playerImg
+    }
+    
+    // 加载小兵图片（小蛋卷，多个样式）
     const minionSrcs = [minionImg1, minionImg2]
     const loadedImages: HTMLImageElement[] = []
     
@@ -908,6 +1663,13 @@ function GrassCutter() {
         minionImagesRef.current = [...loadedImages]
       }
     })
+    
+    // 加载 Boss 图片（蛋卷大魔王）
+    const bossImage = new Image()
+    bossImage.src = bossImg
+    bossImage.onload = () => {
+      bossImageRef.current = bossImage
+    }
     
     initGame(currentLevel, true)
     
@@ -923,15 +1685,68 @@ function GrassCutter() {
     }
   }, [])
 
-  // 敌人生成定时器
+  // 敌人生成定时器 / Boss 生成
   useEffect(() => {
+    console.log('[Spawn] useEffect triggered:', { gameState, currentLevel, bossExists: !!bossRef.current })
+    
     if (gameState === 'playing') {
+      // 第10关：Boss 由 handleJumpToLevel / handleNextLevel / handleRetry 直接生成
+      // 这里只需要清除小兵定时器
+      if (currentLevel === 10) {
+        console.log('[Boss] Level 10: clearing enemy spawn timer, boss should be spawned by handler')
+        
+        // 清除可能存在的小兵定时器
+        if (spawnTimerRef.current) {
+          clearInterval(spawnTimerRef.current)
+          spawnTimerRef.current = 0
+        }
+        
+        // 如果 Boss 不存在（可能是初始化时），尝试生成
+        if (!bossRef.current) {
+          console.log('[Boss] No boss found, attempting to spawn...')
+          const { width, height } = canvasSizeRef.current
+          if (width > 0 && height > 0) {
+            const boss: Boss = {
+              x: width / 2,
+              y: 100,
+              radius: BOSS_CONFIG.radius,
+              hp: BOSS_CONFIG.hp,
+              maxHp: BOSS_CONFIG.hp,
+              speed: BOSS_CONFIG.speed,
+              hitFlash: 0,
+              speech: BOSS_SPEECHES[Math.floor(Math.random() * BOSS_SPEECHES.length)],
+              speechTimer: SPEECH_DURATION,
+              shootTimer: BOSS_CONFIG.shootInterval,
+              speechCooldown: BOSS_SPEECH_INTERVAL,
+            }
+            bossRef.current = boss
+            setBossHp(boss.hp)
+            console.log('[Boss] ✅ Boss spawned in useEffect!', boss)
+          }
+        } else {
+          console.log('[Boss] Boss already exists:', bossRef.current)
+        }
+        
+        // Boss 关不需要小兵定时器，直接返回
+        return () => {
+          console.log('[Spawn] Cleanup for level 10')
+          if (spawnTimerRef.current) {
+            clearInterval(spawnTimerRef.current)
+            spawnTimerRef.current = 0
+          }
+        }
+      }
+      
+      // 其他关卡正常生成小兵
+      console.log('[Spawn] Setting up enemy spawn timer for level', currentLevel)
       const config = LEVEL_CONFIGS[currentLevel - 1]
       spawnTimerRef.current = window.setInterval(spawnEnemy, config.spawnInterval)
       
       return () => {
+        console.log('[Spawn] Cleanup: clearing spawn timer')
         if (spawnTimerRef.current) {
           clearInterval(spawnTimerRef.current)
+          spawnTimerRef.current = 0
         }
       }
     }
@@ -947,6 +1762,53 @@ function GrassCutter() {
           <path d="M15 18l-6-6 6-6" />
         </svg>
       </button>
+
+      {/* 设置按钮 */}
+      <button className={styles.settingBtn} onClick={handleOpenSettings}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+        </svg>
+      </button>
+
+      {/* 开发者调试按钮 */}
+      <button className={styles.devBtn} onClick={toggleDevMenu}>
+        🛠️
+      </button>
+
+      {/* 开发者菜单 */}
+      {showDevMenu && (
+        <div className={styles.devMenu}>
+          <div className={styles.devMenuHeader}>
+            <span>🛠️ 开发者调试</span>
+            <button className={styles.devCloseBtn} onClick={toggleDevMenu}>×</button>
+          </div>
+          <div className={styles.devMenuSection}>
+            <span className={styles.devMenuLabel}>关卡跳转</span>
+            <div className={styles.devLevelGrid}>
+              {LEVEL_CONFIGS.map((config) => (
+                <button
+                  key={config.level}
+                  className={`${styles.devLevelBtn} ${currentLevel === config.level ? styles.active : ''}`}
+                  onClick={() => handleJumpToLevel(config.level)}
+                >
+                  {config.level === 10 ? '👑' : ''} {config.level}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className={styles.devMenuSection}>
+            <span className={styles.devMenuLabel}>快捷操作</span>
+            <button className={styles.devActionBtn} onClick={handleMaxWeapons}>
+              🚀 满级武器
+            </button>
+          </div>
+          <div className={styles.devMenuInfo}>
+            <span>当前: 第{currentLevel}关 · Lv.{playerLevel}</span>
+            <span>武器: {weaponStateRef.current.weapons.length}把</span>
+          </div>
+        </div>
+      )}
 
       {/* HUD */}
       <div className={styles.hud}>
@@ -972,6 +1834,20 @@ function GrassCutter() {
         />
         <span className={styles.playerHpText}>{playerHp} / {INITIAL_PLAYER.maxHp}</span>
       </div>
+
+      {/* Boss 血条（仅在第10关显示） */}
+      {currentLevel === 10 && bossRef.current && (
+        <div className={styles.bossHpContainer}>
+          <div className={styles.bossName}>👑 蛋卷大魔王</div>
+          <div className={styles.bossHpBar}>
+            <div 
+              className={styles.bossHpFill} 
+              style={{ width: `${(bossHp / BOSS_CONFIG.hp) * 100}%` }}
+            />
+            <span className={styles.bossHpText}>{bossHp} / {BOSS_CONFIG.hp}</span>
+          </div>
+        </div>
+      )}
 
       {/* 游戏画布 */}
       <canvas ref={canvasRef} className={styles.canvas} />
@@ -1044,6 +1920,12 @@ function GrassCutter() {
                 </span>
               </button>
             </div>
+            <button 
+              className={styles.skipBtn}
+              onClick={handleSkipUpgrade}
+            >
+              放弃本次升级
+            </button>
           </div>
         </div>
       )}
@@ -1117,6 +1999,90 @@ function GrassCutter() {
             <button className={styles.actionBtn} onClick={() => navigate('/')}>
               返回游戏中心
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* 设置菜单弹窗 */}
+      {gameState === 'settings' && (
+        <div className={styles.modal}>
+          <div className={styles.modalContent}>
+            <h2 className={styles.modalTitle}>⚙️ 游戏设置</h2>
+            <p className={styles.modalSubtitle}>第 {currentLevel} 关 · Lv.{playerLevel}</p>
+            <div className={styles.settingBtnGroup}>
+              <button 
+                className={`${styles.settingMenuBtn} ${styles.primary}`}
+                onClick={handleCloseSettings}
+              >
+                继续游戏
+              </button>
+              <button 
+                className={`${styles.settingMenuBtn} ${styles.danger}`}
+                onClick={handleRequestRestart}
+              >
+                重新开始
+              </button>
+              <button 
+                className={`${styles.settingMenuBtn} ${styles.secondary}`}
+                onClick={handleRequestExit}
+              >
+                退出游戏
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 确认重新开始弹窗 */}
+      {gameState === 'confirmRestart' && (
+        <div className={styles.modal}>
+          <div className={styles.modalContent}>
+            <h2 className={styles.modalTitle}>🔄 重新开始</h2>
+            <p className={styles.confirmText}>
+              确定要重新开始游戏吗？<br />
+              <span className={styles.warning}>这将清除所有当前进度和升级！</span>
+            </p>
+            <div className={styles.confirmBtnGroup}>
+              <button 
+                className={`${styles.settingMenuBtn} ${styles.secondary}`}
+                onClick={handleCancelConfirm}
+              >
+                取消
+              </button>
+              <button 
+                className={`${styles.settingMenuBtn} ${styles.danger}`}
+                onClick={handleConfirmRestart}
+              >
+                确认重新开始
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 确认退出弹窗 */}
+      {gameState === 'confirmExit' && (
+        <div className={styles.modal}>
+          <div className={styles.modalContent}>
+            <h2 className={styles.modalTitle}>🚪 退出游戏</h2>
+            <p className={styles.confirmText}>
+              确定要退出游戏吗？<br />
+              <span className={styles.warning}>当前进度将自动保存，下次可继续游戏。</span>
+            </p>
+            <div className={styles.confirmBtnGroup}>
+              <button 
+                className={`${styles.settingMenuBtn} ${styles.secondary}`}
+                onClick={handleCancelConfirm}
+              >
+                取消
+              </button>
+              <button 
+                className={`${styles.settingMenuBtn} ${styles.primary}`}
+                onClick={handleConfirmExit}
+              >
+                保存并退出
+              </button>
+            </div>
           </div>
         </div>
       )}

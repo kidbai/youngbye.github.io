@@ -56,6 +56,182 @@
   color: #FFFFFF;
 }
 
+/* ==================== 设置按钮 ==================== */
+.settingBtn {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 100;
+  transition: all 0.3s ease;
+}
+
+.settingBtn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: scale(1.05);
+}
+
+.settingBtn:active {
+  transform: scale(0.95);
+}
+
+.settingBtn svg {
+  width: 24px;
+  height: 24px;
+  color: #FFFFFF;
+}
+
+/* ==================== 开发者调试按钮和菜单 ==================== */
+.devBtn {
+  position: absolute;
+  top: 70px;
+  right: 16px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(255, 165, 0, 0.2);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 165, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 100;
+  transition: all 0.3s ease;
+  font-size: 16px;
+}
+
+.devBtn:hover {
+  background: rgba(255, 165, 0, 0.4);
+  transform: scale(1.1);
+}
+
+.devMenu {
+  position: absolute;
+  top: 70px;
+  right: 60px;
+  width: 220px;
+  background: rgba(10, 14, 39, 0.95);
+  backdrop-filter: blur(15px);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 165, 0, 0.4);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  z-index: 150;
+  overflow: hidden;
+}
+
+.devMenuHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: rgba(255, 165, 0, 0.2);
+  border-bottom: 1px solid rgba(255, 165, 0, 0.3);
+  font-size: 14px;
+  font-weight: 600;
+  color: #FFA500;
+}
+
+.devCloseBtn {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: #FFFFFF;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.devCloseBtn:hover {
+  background: rgba(255, 71, 87, 0.5);
+}
+
+.devMenuSection {
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.devMenuLabel {
+  display: block;
+  font-size: 11px;
+  color: #6C7A8A;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.devLevelGrid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+}
+
+.devLevelBtn {
+  padding: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #B8C5D6;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.devLevelBtn:hover {
+  background: rgba(0, 217, 255, 0.3);
+  border-color: #00D9FF;
+  color: #FFFFFF;
+}
+
+.devLevelBtn.active {
+  background: rgba(0, 217, 255, 0.5);
+  border-color: #00D9FF;
+  color: #FFFFFF;
+}
+
+.devActionBtn {
+  width: 100%;
+  padding: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #FFFFFF;
+  background: linear-gradient(135deg, #FF6B6B 0%, #FFA502 100%);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.devActionBtn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(255, 165, 2, 0.4);
+}
+
+.devMenuInfo {
+  padding: 10px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: #6C7A8A;
+  background: rgba(0, 0, 0, 0.2);
+}
+
 /* ==================== HUD 信息面板 ==================== */
 .hud {
   position: absolute;
@@ -125,6 +301,56 @@
   font-weight: 600;
   color: #FFFFFF;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+/* ==================== Boss 血条 ==================== */
+.bossHpContainer {
+  position: absolute;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  z-index: 90;
+}
+
+.bossName {
+  font-size: 16px;
+  font-weight: 700;
+  color: #FFD700;
+  text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+}
+
+.bossHpBar {
+  position: relative;
+  width: 300px;
+  height: 24px;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 12px;
+  border: 2px solid rgba(255, 215, 0, 0.6);
+  overflow: hidden;
+  box-shadow: 0 0 15px rgba(255, 71, 87, 0.4);
+}
+
+.bossHpFill {
+  height: 100%;
+  background: linear-gradient(90deg, #8B0000 0%, #FF4757 50%, #FF6B7A 100%);
+  border-radius: 10px;
+  transition: width 0.3s ease;
+  box-shadow: 0 0 15px rgba(255, 71, 87, 0.6);
+}
+
+.bossHpText {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 12px;
+  font-weight: 700;
+  color: #FFFFFF;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
 }
 
 /* ==================== 虚拟摇杆 ==================== */
@@ -283,6 +509,31 @@
   font-weight: 500;
 }
 
+/* 放弃升级按钮 */
+.skipBtn {
+  width: 100%;
+  margin-top: 16px;
+  padding: 12px 24px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #6C7A8A;
+  background: transparent;
+  border: 1px dashed rgba(108, 122, 138, 0.5);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.skipBtn:hover {
+  color: #B8C5D6;
+  border-color: rgba(184, 197, 214, 0.5);
+  background: rgba(108, 122, 138, 0.1);
+}
+
+.skipBtn:active {
+  transform: scale(0.98);
+}
+
 /* ==================== 结果统计 ==================== */
 .resultStats {
   display: flex;
@@ -339,6 +590,84 @@
 
 .actionBtn:active {
   transform: translateY(0);
+}
+
+/* ==================== 设置菜单按钮组 ==================== */
+.settingBtnGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settingMenuBtn {
+  width: 100%;
+  padding: 16px 32px;
+  font-size: 16px;
+  font-weight: 600;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.settingMenuBtn.primary {
+  color: #0A0E27;
+  background: linear-gradient(135deg, #00D9FF 0%, #00FF88 100%);
+  box-shadow: 0 4px 20px rgba(0, 217, 255, 0.4);
+}
+
+.settingMenuBtn.primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(0, 217, 255, 0.5);
+}
+
+.settingMenuBtn.danger {
+  color: #FFFFFF;
+  background: linear-gradient(135deg, #FF4757 0%, #FF6B7A 100%);
+  box-shadow: 0 4px 20px rgba(255, 71, 87, 0.4);
+}
+
+.settingMenuBtn.danger:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(255, 71, 87, 0.5);
+}
+
+.settingMenuBtn.secondary {
+  color: #B8C5D6;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.settingMenuBtn.secondary:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+.settingMenuBtn:active {
+  transform: translateY(0);
+}
+
+/* ==================== 确认弹窗 ==================== */
+.confirmText {
+  font-size: 14px;
+  color: #B8C5D6;
+  text-align: center;
+  margin-bottom: 24px;
+  line-height: 1.6;
+}
+
+.confirmText .warning {
+  color: #FFA502;
+  font-weight: 600;
+}
+
+.confirmBtnGroup {
+  display: flex;
+  gap: 12px;
+}
+
+.confirmBtnGroup .settingMenuBtn {
+  flex: 1;
 }
 
 /* ==================== 响应式适配 ==================== */
