@@ -186,7 +186,7 @@ const BOSS_KNOCKBACK_DISTANCE = 40 // 弹开后额外拉开距离（像素）
 
 const INITIAL_WEAPON = {
   angle: 0,
-  range: 60,
+  range: 80,
   damage: 10,
   rotationSpeed: 3,
   width: 8,
@@ -335,6 +335,7 @@ function GrassCutter() {
   })
   const gameLoopRef = useRef<number>(0)
   const spawnTimerRef = useRef<number>(0)
+  const keysRef = useRef<Set<string>>(new Set()) // WASD 键盘状态
   const enemyIdCounter = useRef(0)
   const bulletIdCounter = useRef(0)
   const lastTimeRef = useRef(0)
@@ -1916,6 +1917,70 @@ function GrassCutter() {
     }
   }, [handleJoystickMove, handleJoystickEnd])
 
+  // WASD 键盘控制
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase()
+      if (['w', 'a', 's', 'd'].includes(key)) {
+        keysRef.current.add(key)
+        updateKeyboardDirection()
+      }
+    }
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase()
+      if (['w', 'a', 's', 'd'].includes(key)) {
+        keysRef.current.delete(key)
+        updateKeyboardDirection()
+      }
+    }
+
+    const updateKeyboardDirection = () => {
+      const keys = keysRef.current
+      const joystick = joystickRef.current
+
+      // 如果触摸摇杆正在使用，键盘不覆盖
+      if (joystick.active && touchIdRef.current !== null) return
+
+      let dirX = 0
+      let dirY = 0
+
+      if (keys.has('a')) dirX -= 1
+      if (keys.has('d')) dirX += 1
+      if (keys.has('w')) dirY -= 1
+      if (keys.has('s')) dirY += 1
+
+      // 归一化斜方向
+      if (dirX !== 0 && dirY !== 0) {
+        const len = Math.sqrt(dirX * dirX + dirY * dirY)
+        dirX /= len
+        dirY /= len
+      }
+
+      if (dirX !== 0 || dirY !== 0) {
+        joystick.active = true
+        joystick.dirX = dirX
+        joystick.dirY = dirY
+        // 更新摇杆视觉偏移（满幅 40）
+        const maxDist = 40
+        setJoystickOffset({ x: dirX * maxDist, y: dirY * maxDist })
+      } else {
+        joystick.active = false
+        joystick.dirX = 0
+        joystick.dirY = 0
+        setJoystickOffset({ x: 0, y: 0 })
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keyup', handleKeyUp)
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
+    }
+  }, [])
+
   // 摇杆区域的 touch/mouse start 事件
   const onJoystickTouchStart = useCallback((e: React.TouchEvent) => {
     e.preventDefault()
@@ -2103,29 +2168,45 @@ function GrassCutter() {
         </div>
       )}
 
-      {/* HUD */}
-      <div className={styles.hud}>
-        <div className={styles.hudItem}>
-          <span className={styles.hudLabel}>关卡</span>
-          <span className={styles.hudValue}>{currentLevel}</span>
-        </div>
-        <div className={styles.hudItem}>
-          <span className={styles.hudLabel}>击杀</span>
-          <span className={styles.hudValue}>{totalKills} / {levelConfig.killTarget}</span>
-        </div>
-        <div className={styles.hudItem}>
-          <span className={styles.hudLabel}>积分</span>
-          <span className={styles.hudValue}>{score}</span>
+      {/* 左侧状态面板（关卡 + 等级 + 经验） */}
+      <div className={styles.leftPanel}>
+        <div className={styles.levelCard}>
+          <div className={styles.levelRow}>
+            <div className={styles.levelBadge}>Lv.{playerLevel}</div>
+            <div className={styles.stageBadge}>第{currentLevel}关</div>
+          </div>
+          <div className={styles.expRow}>
+            <div className={styles.expBarOuter}>
+              <div 
+                className={styles.expBarInner} 
+                style={{ width: `${(killCount % KILLS_PER_UPGRADE) / KILLS_PER_UPGRADE * 100}%` }}
+              />
+            </div>
+            <span className={styles.expText}>{killCount % KILLS_PER_UPGRADE}/{KILLS_PER_UPGRADE}</span>
+          </div>
+          <div className={styles.statsRow}>
+            <div className={styles.statItem}>
+              <span className={styles.statLabel}>击杀</span>
+              <span className={styles.statValue}>{totalKills}/{levelConfig.killTarget}</span>
+            </div>
+            <div className={styles.statItem}>
+              <span className={styles.statLabel}>积分</span>
+              <span className={styles.statValue}>{score}</span>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* 玩家血条 */}
-      <div className={styles.playerHpBar}>
-        <div 
-          className={styles.playerHpFill} 
-          style={{ width: `${(playerHp / INITIAL_PLAYER.maxHp) * 100}%` }}
-        />
-        <span className={styles.playerHpText}>{playerHp} / {INITIAL_PLAYER.maxHp}</span>
+      {/* 底部血条（横向） */}
+      <div className={styles.bottomHpBar}>
+        <span className={styles.hpLabel}>HP</span>
+        <div className={styles.playerHpBar}>
+          <div 
+            className={styles.playerHpFill} 
+            style={{ width: `${(playerHp / INITIAL_PLAYER.maxHp) * 100}%` }}
+          />
+        </div>
+        <span className={styles.playerHpText}>{playerHp}/{INITIAL_PLAYER.maxHp}</span>
       </div>
 
       {/* Boss 血条（每关：击杀 100 小怪后出现） */}

@@ -239,75 +239,153 @@
   background: rgba(0, 0, 0, 0.2);
 }
 
-/* ==================== HUD 信息面板 ==================== */
-.hud {
+/* ==================== 左侧状态面板（关卡 + 经验条 竖向） ==================== */
+.leftPanel {
   position: absolute;
-  top: calc(16px + var(--safe-top));
-  left: 50%;
-  transform: translateX(-50%);
+  top: calc(76px + var(--safe-top));
+  left: calc(16px + var(--safe-left));
   display: flex;
-  gap: 20px;
-  padding: 12px 24px;
-  background: rgba(10, 14, 39, 0.8);
-  backdrop-filter: blur(10px);
-  border-radius: 16px;
-  border: 1px solid rgba(0, 217, 255, 0.3);
-  box-shadow: 0 4px 20px rgba(0, 217, 255, 0.2);
+  flex-direction: column;
+  gap: 8px;
   z-index: 90;
 }
 
-.hudItem {
+.levelCard {
   display: flex;
   flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: rgba(10, 14, 39, 0.8);
+  backdrop-filter: blur(8px);
+  border-radius: 10px;
+  border: 1px solid rgba(0, 217, 255, 0.25);
+  box-shadow: 0 2px 12px rgba(0, 217, 255, 0.15);
+}
+
+.levelRow {
+  display: flex;
   align-items: center;
+  gap: 8px;
+}
+
+.levelBadge {
+  background: linear-gradient(135deg, #FFD700, #FFA500);
+  color: #1a1a2e;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+  box-shadow: 0 2px 6px rgba(255, 215, 0, 0.4);
+  white-space: nowrap;
+}
+
+.stageBadge {
+  background: linear-gradient(135deg, #00D9FF, #0099CC);
+  color: #1a1a2e;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 5px;
+  white-space: nowrap;
+}
+
+.statsRow {
+  display: flex;
+  flex-direction: column;
   gap: 4px;
 }
 
-.hudLabel {
-  font-size: 12px;
+.statItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.statLabel {
+  font-size: 9px;
   color: #6C7A8A;
   font-weight: 500;
 }
 
-.hudValue {
-  font-size: 18px;
-  font-weight: 700;
+.statValue {
+  font-size: 11px;
+  font-weight: 600;
   color: #00D9FF;
-  text-shadow: 0 0 10px rgba(0, 217, 255, 0.5);
 }
 
-/* ==================== 玩家血条 ==================== */
-.playerHpBar {
+/* 经验条 */
+.expRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.expBarOuter {
+  flex: 1;
+  height: 6px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 3px;
+  border: 1px solid rgba(255, 215, 0, 0.3);
+  overflow: hidden;
+}
+
+.expBarInner {
+  height: 100%;
+  background: linear-gradient(90deg, #FFD700, #FFEC8B);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+  box-shadow: 0 0 4px rgba(255, 215, 0, 0.5);
+}
+
+.expText {
+  font-size: 9px;
+  color: #FFD700;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ==================== 底部血条（横向） ==================== */
+.bottomHpBar {
   position: absolute;
-  top: calc(80px + var(--safe-top));
+  bottom: calc(20px + var(--safe-bottom, 0px));
   left: 50%;
   transform: translateX(-50%);
-  width: 200px;
-  height: 20px;
-  background: rgba(0, 0, 0, 0.5);
-  border-radius: 10px;
-  border: 2px solid rgba(255, 71, 87, 0.5);
-  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   z-index: 90;
+}
+
+.hpLabel {
+  font-size: 11px;
+  color: #FF6B7A;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.playerHpBar {
+  width: 200px;
+  height: 14px;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 7px;
+  border: 1px solid rgba(255, 71, 87, 0.5);
+  overflow: hidden;
 }
 
 .playerHpFill {
   height: 100%;
   background: linear-gradient(90deg, #FF4757 0%, #FF6B7A 100%);
-  border-radius: 8px;
+  border-radius: 6px;
   transition: width 0.3s ease;
-  box-shadow: 0 0 10px rgba(255, 71, 87, 0.5);
+  box-shadow: 0 0 8px rgba(255, 71, 87, 0.5);
 }
 
 .playerHpText {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  font-size: 12px;
+  font-size: 10px;
+  color: #fff;
   font-weight: 600;
-  color: #FFFFFF;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  white-space: nowrap;
 }
 
 /* ==================== Boss 血条 ==================== */
@@ -680,23 +758,59 @@
 
 /* ==================== 响应式适配 ==================== */
 @media (max-width: 480px) {
-  .hud {
-    gap: 12px;
-    padding: 10px 16px;
+  .leftPanel {
+    top: calc(68px + var(--safe-top));
+    left: calc(12px + var(--safe-left));
+    gap: 6px;
   }
 
-  .hudLabel {
+  .levelCard {
+    padding: 6px 8px;
+    gap: 4px;
+  }
+
+  .levelBadge {
+    font-size: 10px;
+    padding: 2px 6px;
+  }
+
+  .stageBadge {
+    font-size: 9px;
+    padding: 2px 5px;
+  }
+
+  .statLabel {
+    font-size: 8px;
+  }
+
+  .statValue {
     font-size: 10px;
   }
 
-  .hudValue {
-    font-size: 14px;
+  .expBarOuter {
+    height: 5px;
+  }
+
+  .expText {
+    font-size: 8px;
+  }
+
+  .bottomHpBar {
+    bottom: calc(15px + var(--safe-bottom, 0px));
+    gap: 6px;
+  }
+
+  .hpLabel {
+    font-size: 10px;
   }
 
   .playerHpBar {
-    width: 160px;
-    height: 16px;
-    top: calc(70px + var(--safe-top));
+    width: 140px;
+    height: 12px;
+  }
+
+  .playerHpText {
+    font-size: 9px;
   }
 
   .joystick {
