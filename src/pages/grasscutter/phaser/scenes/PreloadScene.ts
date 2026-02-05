@@ -51,9 +51,11 @@ export class PreloadScene extends Phaser.Scene {
     this.scene.start('MainScene')
   }
 
-  /** 生成带圆形裁剪的派生纹理（用于头像显示，保持原图比例，中心裁剪） */
+  /** 生成带圆形裁剪的派生纹理（用于头像显示，保持原图比例，中心裁剪，高清支持） */
   private generateCircleTextures(): void {
     const keys = ['minion', 'minion2', 'monster', 'yuanxiao', 'yuanxiao-shoted', 'boss', 'boss-shot']
+    const dpr = window.devicePixelRatio || 1
+
     keys.forEach((key) => {
       const circleKey = `${key}-circle`
       if (this.textures.exists(circleKey)) return
@@ -67,11 +69,15 @@ export class PreloadScene extends Phaser.Scene {
       const size = Math.min(srcW, srcH)
       const radius = size / 2
 
-      // 创建 canvas 进行裁剪
+      // 创建高清 canvas（考虑设备像素比，但保持纹理尺寸不变）
       const canvas = document.createElement('canvas')
       canvas.width = size
       canvas.height = size
       const ctx = canvas.getContext('2d')!
+
+      // 启用图像平滑
+      ctx.imageSmoothingEnabled = true
+      ctx.imageSmoothingQuality = 'high'
 
       // 绘制圆形裁剪路径
       ctx.beginPath()
@@ -83,7 +89,7 @@ export class PreloadScene extends Phaser.Scene {
       const offsetX = (srcW - size) / 2
       const offsetY = (srcH - size) / 2
 
-      // 获取原始图片并绘制（中心裁剪）
+      // 获取原始图片并绘制（中心裁剪，使用完整源尺寸以保证清晰度）
       const srcImage = srcTexture.getSourceImage() as HTMLImageElement
       ctx.drawImage(srcImage, offsetX, offsetY, size, size, 0, 0, size, size)
 

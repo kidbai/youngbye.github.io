@@ -54,8 +54,17 @@ export class MainScene extends Phaser.Scene {
   private spawnSystem!: SpawnSystem
   private weaponSystem!: WeaponSystem
 
-  // 移动向量
+  // 移动向量（来自摇杆）
   private moveVector: MoveVector = { x: 0, y: 0 }
+
+  // 键盘输入
+  private cursors!: Phaser.Types.Input.Keyboard.CursorKeys
+  private wasdKeys!: {
+    W: Phaser.Input.Keyboard.Key
+    A: Phaser.Input.Keyboard.Key
+    S: Phaser.Input.Keyboard.Key
+    D: Phaser.Input.Keyboard.Key
+  }
 
   // 游戏状态
   private gameState = 'playing'
@@ -128,6 +137,15 @@ export class MainScene extends Phaser.Scene {
     // 相机跟随
     this.cameras.main.setBounds(0, 0, worldW, worldH)
     this.cameras.main.startFollow(this.player, true, 0.1, 0.1)
+
+    // 初始化键盘输入
+    this.cursors = this.input.keyboard!.createCursorKeys()
+    this.wasdKeys = {
+      W: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.W),
+      A: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.A),
+      S: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.S),
+      D: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.D),
+    }
 
     // 开始刷怪
     this.startLevel()
@@ -210,7 +228,24 @@ export class MainScene extends Phaser.Scene {
 
   /** 更新玩家移动 */
   private updatePlayerMovement(): void {
-    const { x, y } = this.moveVector
+    // 优先使用摇杆输入
+    let { x, y } = this.moveVector
+
+    // 如果摇杆没有输入，检查键盘
+    if (x === 0 && y === 0) {
+      // 检查方向键
+      if (this.cursors.left.isDown) x -= 1
+      if (this.cursors.right.isDown) x += 1
+      if (this.cursors.up.isDown) y -= 1
+      if (this.cursors.down.isDown) y += 1
+
+      // 检查 WASD
+      if (this.wasdKeys.A.isDown) x -= 1
+      if (this.wasdKeys.D.isDown) x += 1
+      if (this.wasdKeys.W.isDown) y -= 1
+      if (this.wasdKeys.S.isDown) y += 1
+    }
+
     const body = this.player.getBody()
 
     if (x === 0 && y === 0) {

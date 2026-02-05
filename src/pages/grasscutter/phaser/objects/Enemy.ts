@@ -42,6 +42,8 @@ export class Enemy extends Phaser.GameObjects.Container {
 
   private avatar: Phaser.GameObjects.Image
   private speechText: Phaser.GameObjects.Text | null = null
+  private hpBarBg: Phaser.GameObjects.Graphics
+  private hpBarFill: Phaser.GameObjects.Graphics
 
   constructor(scene: Phaser.Scene, x: number, y: number, config: Partial<Omit<EnemyConfig, 'x' | 'y'>> = {}) {
     const cfg = { ...DEFAULT_CONFIG, ...config }
@@ -58,6 +60,17 @@ export class Enemy extends Phaser.GameObjects.Container {
     this.avatar.setDisplaySize(cfg.radius * 2, cfg.radius * 2)
     this.add(this.avatar)
 
+    // 血条背景
+    this.hpBarBg = scene.add.graphics()
+    this.add(this.hpBarBg)
+
+    // 血条填充
+    this.hpBarFill = scene.add.graphics()
+    this.add(this.hpBarFill)
+
+    // 初始化血条
+    this.updateHpBar()
+
     // 添加到场景
     scene.add.existing(this)
 
@@ -71,6 +84,28 @@ export class Enemy extends Phaser.GameObjects.Container {
     if (Math.random() < 0.3) {
       this.showSpeech(ENEMY_SPEECHES[Math.floor(Math.random() * ENEMY_SPEECHES.length)])
     }
+  }
+
+  /** 更新血条显示 */
+  private updateHpBar(): void {
+    const barWidth = this.radius * 2
+    const barHeight = 4
+    const barY = -this.radius - 10
+
+    // 背景
+    this.hpBarBg.clear()
+    this.hpBarBg.fillStyle(0x000000, 0.5)
+    this.hpBarBg.fillRect(-barWidth / 2, barY, barWidth, barHeight)
+
+    // 填充（根据血量百分比变色）
+    const hpPercent = Math.max(0, this.hp / this.maxHp)
+    let fillColor = 0x2ed573 // 绿色
+    if (hpPercent <= 0.5) fillColor = 0xffa502 // 橙色
+    if (hpPercent <= 0.25) fillColor = 0xff4757 // 红色
+
+    this.hpBarFill.clear()
+    this.hpBarFill.fillStyle(fillColor, 1)
+    this.hpBarFill.fillRect(-barWidth / 2, barY, barWidth * hpPercent, barHeight)
   }
 
   /** 显示话术气泡 */
@@ -129,6 +164,7 @@ export class Enemy extends Phaser.GameObjects.Container {
   takeDamage(amount: number): boolean {
     this.hp -= amount
     this.hitFlash = 100
+    this.updateHpBar()
     return this.hp <= 0
   }
 

@@ -38,6 +38,12 @@ export function createGame(opts: CreateGameOptions): Phaser.Game {
       mode: Phaser.Scale.RESIZE,
       autoCenter: Phaser.Scale.CENTER_BOTH,
     },
+    render: {
+      // 高清渲染配置
+      pixelArt: false, // 非像素风格，使用平滑缩放
+      antialias: true, // 抗锯齿
+      roundPixels: false,
+    },
     scene: [BootScene, PreloadScene, MainScene],
     // 世界边界在 MainScene 中配置
   }
