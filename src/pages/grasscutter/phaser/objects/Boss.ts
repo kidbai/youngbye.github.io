@@ -75,8 +75,8 @@ export class Boss extends Phaser.GameObjects.Container {
     this.bulletDamage = cfg.bulletDamage
     this.bulletRadius = cfg.bulletRadius
 
-    // 头像
-    this.avatar = scene.add.image(0, 0, 'boss')
+    // 头像（使用圆形裁剪的纹理）
+    this.avatar = scene.add.image(0, 0, 'boss-circle')
     this.avatar.setDisplaySize(cfg.radius * 2, cfg.radius * 2)
     this.add(this.avatar)
 
@@ -150,7 +150,7 @@ export class Boss extends Phaser.GameObjects.Container {
       this.shootingTimer -= delta
       if (this.shootingTimer <= 0) {
         this.isShooting = false
-        this.avatar.setTexture('boss')
+        this.avatar.setTexture('boss-circle')
       }
     }
 
@@ -188,7 +188,7 @@ export class Boss extends Phaser.GameObjects.Container {
     this.shootTimer = this.shootInterval
     this.isShooting = true
     this.shootingTimer = 200
-    this.avatar.setTexture('boss-shot')
+    this.avatar.setTexture('boss-shot-circle')
   }
 
   /** 受到伤害 */

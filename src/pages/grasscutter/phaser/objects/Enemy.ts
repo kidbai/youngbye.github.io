@@ -38,6 +38,7 @@ export class Enemy extends Phaser.GameObjects.Container {
   public hitFlash: number = 0
   public speech: string = ''
   public speechTimer: number = 0
+  public imageKey: string
 
   private avatar: Phaser.GameObjects.Image
   private speechText: Phaser.GameObjects.Text | null = null
@@ -50,9 +51,10 @@ export class Enemy extends Phaser.GameObjects.Container {
     this.maxHp = cfg.maxHp
     this.speed = cfg.speed
     this.radius = cfg.radius
+    this.imageKey = cfg.imageKey
 
-    // 头像
-    this.avatar = scene.add.image(0, 0, cfg.imageKey)
+    // 头像（使用圆形裁剪的纹理）
+    this.avatar = scene.add.image(0, 0, `${cfg.imageKey}-circle`)
     this.avatar.setDisplaySize(cfg.radius * 2, cfg.radius * 2)
     this.add(this.avatar)
 

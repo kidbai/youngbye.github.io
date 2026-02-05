@@ -51,7 +51,7 @@ export class PreloadScene extends Phaser.Scene {
     this.scene.start('MainScene')
   }
 
-  /** 生成带圆形 mask 的派生纹理（用于头像显示） */
+  /** 生成带圆形裁剪的派生纹理（用于头像显示，保持原图比例，中心裁剪） */
   private generateCircleTextures(): void {
     const keys = ['minion', 'minion2', 'monster', 'yuanxiao', 'yuanxiao-shoted', 'boss', 'boss-shot']
     keys.forEach((key) => {
@@ -60,32 +60,35 @@ export class PreloadScene extends Phaser.Scene {
 
       const srcTexture = this.textures.get(key)
       const srcFrame = srcTexture.get()
-      const size = Math.min(srcFrame.width, srcFrame.height)
+      const srcW = srcFrame.width
+      const srcH = srcFrame.height
+      
+      // 取最小边作为输出尺寸（保持比例，中心裁剪）
+      const size = Math.min(srcW, srcH)
       const radius = size / 2
 
-      // 创建 RenderTexture
-      const rt = this.make.renderTexture({ width: size, height: size }, false)
+      // 创建 canvas 进行裁剪
+      const canvas = document.createElement('canvas')
+      canvas.width = size
+      canvas.height = size
+      const ctx = canvas.getContext('2d')!
 
-      // 画圆形 mask + 贴图
-      const graphics = this.make.graphics({ x: 0, y: 0 }, false)
-      graphics.fillStyle(0xffffff)
-      graphics.fillCircle(radius, radius, radius)
+      // 绘制圆形裁剪路径
+      ctx.beginPath()
+      ctx.arc(radius, radius, radius, 0, Math.PI * 2)
+      ctx.closePath()
+      ctx.clip()
 
-      // 先在 rt 上绘制原图（居中）
-      const offsetX = (size - srcFrame.width) / 2
-      const offsetY = (size - srcFrame.height) / 2
-      rt.draw(key, offsetX, offsetY)
+      // 计算中心裁剪的偏移（源图居中）
+      const offsetX = (srcW - size) / 2
+      const offsetY = (srcH - size) / 2
 
-      // 使用 mask 裁剪
-      const mask = graphics.createGeometryMask()
-      rt.setMask(mask)
+      // 获取原始图片并绘制（中心裁剪）
+      const srcImage = srcTexture.getSourceImage() as HTMLImageElement
+      ctx.drawImage(srcImage, offsetX, offsetY, size, size, 0, 0, size, size)
 
-      // 保存为新纹理
-      rt.saveTexture(circleKey)
-
-      // 清理
-      graphics.destroy()
-      rt.destroy()
+      // 添加到纹理管理器
+      this.textures.addCanvas(circleKey, canvas)
     })
   }
 }

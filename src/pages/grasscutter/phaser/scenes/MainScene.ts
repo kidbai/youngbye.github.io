@@ -90,9 +90,12 @@ export class MainScene extends Phaser.Scene {
     // 绘制背景
     this.drawBackground(worldW, worldH)
 
-    // 创建组
-    this.enemies = this.add.group()
+    // 创建组（使用物理组以支持碰撞）
+    this.enemies = this.physics.add.group()
     this.bossBullets = this.add.group()
+
+    // 设置敌人之间的碰撞（防止重叠）
+    this.physics.add.collider(this.enemies, this.enemies)
 
     // 加载存档
     const save = SaveSystem.load()

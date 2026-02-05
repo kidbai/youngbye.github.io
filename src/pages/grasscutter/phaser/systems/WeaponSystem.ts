@@ -27,11 +27,11 @@ const DEFAULT_CONFIG: WeaponConfig = {
   width: 8,
 }
 
-/** 猫爪颜色配置 */
+/** 猫爪颜色配置（元宵白色系，与原版一致） */
 const PAW_COLORS = {
-  main: 0xffc8b0,
-  pad: 0xffb6a0,
-  stroke: 0xd48c74,
+  main: 0xffffff,
+  pad: 0x111827,
+  stroke: 0x111827,
 }
 
 export class WeaponSystem {
@@ -112,15 +112,15 @@ export class WeaponSystem {
   ): void {
     graphics.clear()
 
-    // 抓痕线段（渐变效果模拟）
-    graphics.lineStyle(this.config.width, 0xffd4b8, 0.8)
+    // 抓痕线段（细线半透明白色，与原版一致）
+    graphics.lineStyle(Math.max(1, this.config.width * 0.25), 0xffffff, 0.22)
     graphics.beginPath()
     graphics.moveTo(startX, startY)
     graphics.lineTo(endX, endY)
     graphics.strokePath()
 
     // 猫爪在末端
-    this.drawPaw(graphics, endX, endY, angle, this.config.width * 2.5)
+    this.drawPaw(graphics, endX, endY, angle, this.config.width * 3)
   }
 
   /** 绘制猫爪 */

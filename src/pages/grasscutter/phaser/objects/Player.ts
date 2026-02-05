@@ -45,8 +45,8 @@ export class Player extends Phaser.GameObjects.Container {
     this.speed = cfg.speed
     this.radius = cfg.radius
 
-    // 头像
-    this.avatar = scene.add.image(0, 0, 'yuanxiao')
+    // 头像（使用圆形裁剪的纹理）
+    this.avatar = scene.add.image(0, 0, 'yuanxiao-circle')
     this.avatar.setDisplaySize(cfg.radius * 2, cfg.radius * 2)
     this.add(this.avatar)
 
@@ -64,7 +64,7 @@ export class Player extends Phaser.GameObjects.Container {
   /** 受击效果（切换贴图） */
   setHit(hit: boolean): void {
     this.isHit = hit
-    this.avatar.setTexture(hit ? 'yuanxiao-shoted' : 'yuanxiao')
+    this.avatar.setTexture(hit ? 'yuanxiao-shoted-circle' : 'yuanxiao-circle')
   }
 
   /** 显示话术气泡 */
