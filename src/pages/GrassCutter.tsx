@@ -8,6 +8,14 @@ import yuanxiaoImg from '../assets/yuanxiao.png'
 import yuanxiaoShotedImg from '../assets/yuanxiao-shoted.png'
 import bossImg from '../assets/boss.png'
 import bossShotImg from '../assets/boss-shot.png'
+import {
+  WORLD_WIDTH,
+  WORLD_HEIGHT,
+  ENEMIES_PER_LEVEL,
+  clamp,
+  getBossHpByLevel,
+  getLevelConfig,
+} from './grasscutter/balance'
 
 // ==================== 类型定义 ====================
 
@@ -163,7 +171,7 @@ const BOSS_SPEECH_INTERVAL = 4000 // Boss 骚话间隔（毫秒）
 // Boss 配置
 const BOSS_CONFIG = {
   radius: 50, // 100px 直径
-  hp: 2000,
+  baseHp: 2000, // 仅用于参考；实际血量按关卡动态计算
   speed: 1.2,
   shootInterval: 1500, // 射击间隔（毫秒）
   bulletSpeed: 4,
@@ -175,19 +183,6 @@ const BOSS_CONFIG = {
 const BOSS_TOUCH_DAMAGE = 25
 const BOSS_TOUCH_COOLDOWN = 650 // ms
 const BOSS_KNOCKBACK_DISTANCE = 40 // 弹开后额外拉开距离（像素）
-
-const LEVEL_CONFIGS: LevelConfig[] = [
-  { level: 1, enemyHp: 30, enemySpeed: 0.8, spawnInterval: 2500, killTarget: 10 },
-  { level: 2, enemyHp: 40, enemySpeed: 1.0, spawnInterval: 2200, killTarget: 15 },
-  { level: 3, enemyHp: 55, enemySpeed: 1.2, spawnInterval: 2000, killTarget: 20 },
-  { level: 4, enemyHp: 75, enemySpeed: 1.4, spawnInterval: 1800, killTarget: 25 },
-  { level: 5, enemyHp: 100, enemySpeed: 1.6, spawnInterval: 1600, killTarget: 30 },
-  { level: 6, enemyHp: 130, enemySpeed: 1.8, spawnInterval: 1500, killTarget: 35 },
-  { level: 7, enemyHp: 170, enemySpeed: 2.0, spawnInterval: 1400, killTarget: 40 },
-  { level: 8, enemyHp: 220, enemySpeed: 2.2, spawnInterval: 1300, killTarget: 45 },
-  { level: 9, enemyHp: 280, enemySpeed: 2.4, spawnInterval: 1200, killTarget: 50 },
-  { level: 10, enemyHp: 350, enemySpeed: 2.6, spawnInterval: 1000, killTarget: 60 },
-]
 
 const INITIAL_WEAPON = {
   angle: 0,
@@ -344,6 +339,11 @@ function GrassCutter() {
   const bulletIdCounter = useRef(0)
   const lastTimeRef = useRef(0)
   const canvasSizeRef = useRef({ width: 0, height: 0, dpr: 1 })
+  const cameraRef = useRef({ x: 0, y: 0 })
+  const spawnedEnemiesRef = useRef(0) // 本关已生成的小怪数量（最多 100）
+  const bossShouldSpawnRef = useRef(false) // 达到击杀目标后，等待升级弹窗结束再刷出 Boss
+  const bossMaxHpRef = useRef(0)
+  const nextLevelCallbackRef = useRef<() => void>(() => {})
   // 用 ref 持有最新的 gameLoop，避免 rAF 递归调度导致闭包拿到旧 state（切关后 Boss/逻辑不生效）
   const gameLoopCallbackRef = useRef<(timestamp: number) => void>(() => {})
   const minionImagesRef = useRef<HTMLImageElement[]>([])
@@ -368,7 +368,8 @@ function GrassCutter() {
   const [pendingUpgrades, setPendingUpgrades] = useState(0)
   const [joystickOffset, setJoystickOffset] = useState({ x: 0, y: 0 })
   const [showDevMenu, setShowDevMenu] = useState(false) // 开发者菜单
-  const [bossHp, setBossHp] = useState(0) // Boss 血量显示
+  const [bossHp, setBossHp] = useState(0) // Boss 当前血量显示
+  const [bossMaxHp, setBossMaxHp] = useState(0) // Boss 最大血量显示
 
   // 初始化游戏
   const initGame = useCallback((levelNum: number, loadSave: boolean = false) => {
@@ -394,11 +395,17 @@ function GrassCutter() {
 
     console.log('[Init] Canvas initialized:', { width: rect.width, height: rect.height, dpr })
 
-    // 初始化玩家位置到画布中央
+    // 初始化玩家位置到“世界地图”中央（屏幕将作为摄像机视口跟随）
+    const startX = WORLD_WIDTH / 2
+    const startY = WORLD_HEIGHT / 2
     playerRef.current = {
       ...INITIAL_PLAYER,
-      x: rect.width / 2,
-      y: rect.height / 2,
+      x: startX,
+      y: startY,
+    }
+    cameraRef.current = {
+      x: clamp(startX - rect.width / 2, 0, Math.max(0, WORLD_WIDTH - rect.width)),
+      y: clamp(startY - rect.height / 2, 0, Math.max(0, WORLD_HEIGHT - rect.height)),
     }
 
     // 加载存档或重置武器
@@ -426,6 +433,15 @@ function GrassCutter() {
     enemiesRef.current = []
     enemyIdCounter.current = 0
 
+    // 重置本关刷怪/ Boss 状态
+    spawnedEnemiesRef.current = 0
+    bossShouldSpawnRef.current = false
+    bossRef.current = null
+    bossBulletsRef.current = []
+    bossMaxHpRef.current = 0
+    setBossHp(0)
+    setBossMaxHp(0)
+
     // 重置击杀计数
     setKillCount(0)
     setTotalKills(0)
@@ -443,42 +459,55 @@ function GrassCutter() {
     console.log('[Init] Game initialized, levelNum:', levelNum)
   }, [])
 
-  // 生成敌人（第10关不生成小兵，只有Boss）
+  // 生成敌人（每关最多 100 只；Boss 出现后不再刷怪）
   const spawnEnemy = useCallback(() => {
-    // Boss 关卡不生成小兵
-    if (currentLevel === 10) return
-    
-    const { width, height } = canvasSizeRef.current
-    if (width === 0 || height === 0) return
+    if (bossRef.current) return
+    if (spawnedEnemiesRef.current >= ENEMIES_PER_LEVEL) return
 
-    const config = LEVEL_CONFIGS[currentLevel - 1]
+    const { width: viewW, height: viewH } = canvasSizeRef.current
+    if (viewW === 0 || viewH === 0) return
+
+    const config = getLevelConfig(currentLevel)
+
+    // 以当前玩家位置计算摄像机（用于把“屏幕边缘刷怪”转换为世界坐标）
+    const player = playerRef.current
+    const cam = {
+      x: clamp(player.x - viewW / 2, 0, Math.max(0, WORLD_WIDTH - viewW)),
+      y: clamp(player.y - viewH / 2, 0, Math.max(0, WORLD_HEIGHT - viewH)),
+    }
+    cameraRef.current = cam
+
     const side = Math.floor(Math.random() * 4) // 0:上 1:右 2:下 3:左
-    let x: number, y: number
+    let sx: number, sy: number
 
     const margin = 30
     switch (side) {
       case 0: // 上
-        x = Math.random() * width
-        y = -margin
+        sx = Math.random() * viewW
+        sy = -margin
         break
       case 1: // 右
-        x = width + margin
-        y = Math.random() * height
+        sx = viewW + margin
+        sy = Math.random() * viewH
         break
       case 2: // 下
-        x = Math.random() * width
-        y = height + margin
+        sx = Math.random() * viewW
+        sy = viewH + margin
         break
       default: // 左
-        x = -margin
-        y = Math.random() * height
+        sx = -margin
+        sy = Math.random() * viewH
     }
+
+    const radius = 30 // 60px 直径（小蛋卷）
+    const x = clamp(cam.x + sx, radius, WORLD_WIDTH - radius)
+    const y = clamp(cam.y + sy, radius, WORLD_HEIGHT - radius)
 
     const enemy: Enemy = {
       id: enemyIdCounter.current++,
       x,
       y,
-      radius: 30, // 60px 直径（小蛋卷）
+      radius,
       hp: config.enemyHp,
       maxHp: config.enemyHp,
       speed: config.enemySpeed,
@@ -489,19 +518,40 @@ function GrassCutter() {
     }
 
     enemiesRef.current.push(enemy)
+    spawnedEnemiesRef.current += 1
+
+    // 达到本关上限后立即停掉刷怪定时器
+    if (spawnedEnemiesRef.current >= ENEMIES_PER_LEVEL && spawnTimerRef.current) {
+      clearInterval(spawnTimerRef.current)
+      spawnTimerRef.current = 0
+    }
   }, [currentLevel])
 
-  // 生成 Boss（第10关）
-  const spawnBoss = useCallback(() => {
-    const { width, height } = canvasSizeRef.current
-    if (width === 0 || height === 0) return
+  // 生成 Boss（每关：击杀 100 小怪后刷出）
+  const spawnBossForLevel = useCallback((level: number) => {
+    const { width: viewW, height: viewH } = canvasSizeRef.current
+    if (viewW === 0 || viewH === 0) return
+
+    const hp = getBossHpByLevel(level)
+    bossMaxHpRef.current = hp
+    setBossMaxHp(hp)
+
+    const player = playerRef.current
+
+    // Boss 默认从“玩家上方”刷出，但要保证在世界边界内
+    const spawnX = clamp(player.x, BOSS_CONFIG.radius, WORLD_WIDTH - BOSS_CONFIG.radius)
+    const spawnY = clamp(
+      player.y - Math.min(450, viewH * 0.8),
+      BOSS_CONFIG.radius,
+      WORLD_HEIGHT - BOSS_CONFIG.radius
+    )
 
     const boss: Boss = {
-      x: width / 2,
-      y: 100, // 从顶部出现
+      x: spawnX,
+      y: spawnY,
       radius: BOSS_CONFIG.radius,
-      hp: BOSS_CONFIG.hp,
-      maxHp: BOSS_CONFIG.hp,
+      hp,
+      maxHp: hp,
       speed: BOSS_CONFIG.speed,
       hitFlash: 0,
       speech: BOSS_SPEECHES[Math.floor(Math.random() * BOSS_SPEECHES.length)],
@@ -513,7 +563,8 @@ function GrassCutter() {
     }
 
     bossRef.current = boss
-    setBossHp(boss.hp)
+    bossBulletsRef.current = []
+    setBossHp(hp)
   }, [])
 
   // 检测单把武器与敌人的碰撞
@@ -580,8 +631,8 @@ function GrassCutter() {
       const moveX = joystick.dirX * player.speed
       const moveY = joystick.dirY * player.speed
       
-      player.x = Math.max(player.radius, Math.min(width - player.radius, player.x + moveX))
-      player.y = Math.max(player.radius, Math.min(height - player.radius, player.y + moveY))
+      player.x = clamp(player.x + moveX, player.radius, WORLD_WIDTH - player.radius)
+      player.y = clamp(player.y + moveY, player.radius, WORLD_HEIGHT - player.radius)
     }
 
     // 更新所有武器角度
@@ -591,7 +642,8 @@ function GrassCutter() {
 
     // 更新敌人位置和检测碰撞
     const enemies = enemiesRef.current
-    const deadEnemies: number[] = []
+    const killedEnemyIds: number[] = []
+    const removedEnemyIds: number[] = []
     let damageToPlayer = 0
 
     for (const enemy of enemies) {
@@ -622,41 +674,58 @@ function GrassCutter() {
         enemy.hitFlash = 100 // 闪烁100ms
 
         if (enemy.hp <= 0) {
-          deadEnemies.push(enemy.id)
+          killedEnemyIds.push(enemy.id)
         }
       }
 
       // 检测玩家碰撞
       if (checkPlayerCollision(enemy)) {
         damageToPlayer += 10
-        deadEnemies.push(enemy.id) // 敌人撞到玩家后消失
+        removedEnemyIds.push(enemy.id) // 敌人撞到玩家后消失（不计入“击杀”）
       }
     }
 
-    // 移除死亡的敌人
-    if (deadEnemies.length > 0) {
-      enemiesRef.current = enemies.filter(e => !deadEnemies.includes(e.id))
-      
-      // 计算击杀数（不包括撞到玩家消失的）
-      const killsThisFrame = deadEnemies.length
-      setKillCount(prev => {
-        const newCount = prev + killsThisFrame
-        // 检查升级（Boss关卡不通过击杀升级）
-        if (currentLevel !== 10) {
-          const newUpgrades = Math.floor(newCount / KILLS_PER_UPGRADE) - Math.floor(prev / KILLS_PER_UPGRADE)
+    // 移除本帧死亡/消失的敌人
+    const deadIds = [...new Set([...killedEnemyIds, ...removedEnemyIds])]
+    if (deadIds.length > 0) {
+      enemiesRef.current = enemies.filter(e => !deadIds.includes(e.id))
+
+      // 仅“武器击杀”计入击杀与升级
+      const killsThisFrame = killedEnemyIds.length
+      if (killsThisFrame > 0) {
+        setKillCount(prev => {
+          const newCount = prev + killsThisFrame
+          const newUpgrades =
+            Math.floor(newCount / KILLS_PER_UPGRADE) - Math.floor(prev / KILLS_PER_UPGRADE)
           if (newUpgrades > 0) {
             setPendingUpgrades(p => p + newUpgrades)
           }
-        }
-        return newCount
-      })
-      setTotalKills(prev => prev + killsThisFrame)
-      setScore(prev => prev + killsThisFrame * 10 * currentLevel)
+          return newCount
+        })
+
+        setTotalKills(prev => {
+          const next = prev + killsThisFrame
+
+          // 达到本关目标：停止刷怪，并准备刷 Boss
+          if (next >= ENEMIES_PER_LEVEL) {
+            bossShouldSpawnRef.current = true
+            spawnedEnemiesRef.current = ENEMIES_PER_LEVEL
+            if (spawnTimerRef.current) {
+              clearInterval(spawnTimerRef.current)
+              spawnTimerRef.current = 0
+            }
+          }
+
+          return next
+        })
+
+        setScore(prev => prev + killsThisFrame * 10 * currentLevel)
+      }
     }
 
     // ==================== Boss 战斗逻辑 ====================
     const boss = bossRef.current
-    if (boss && currentLevel === 10) {
+    if (boss) {
       // Boss 移动（缓慢追踪玩家，但保持一定距离）
       const bossTargetDist = 200 // Boss 与玩家保持的距离
       const dx = player.x - boss.x
@@ -673,9 +742,9 @@ function GrassCutter() {
         boss.y -= (dy / dist) * boss.speed * 0.5
       }
       
-      // 限制 Boss 在画布内
-      boss.x = Math.max(boss.radius, Math.min(width - boss.radius, boss.x))
-      boss.y = Math.max(boss.radius, Math.min(height - boss.radius, boss.y))
+      // 限制 Boss 在世界边界内
+      boss.x = clamp(boss.x, boss.radius, WORLD_WIDTH - boss.radius)
+      boss.y = clamp(boss.y, boss.radius, WORLD_HEIGHT - boss.radius)
 
       // 减少受击闪烁计时
       if (boss.hitFlash > 0) {
@@ -758,10 +827,16 @@ function GrassCutter() {
             boss.hitFlash = 100
             setBossHp(boss.hp)
             
-            if (boss.hp <= 0) {
+            if (boss.hp <= 0 && bossRef.current === boss) {
               bossRef.current = null
               bossBulletsRef.current = []
-              setGameState('victory')
+              setBossHp(0)
+              setBossMaxHp(0)
+              bossMaxHpRef.current = 0
+              bossShouldSpawnRef.current = false
+
+              // Boss 被击败：自动进入下一关
+              setTimeout(() => nextLevelCallbackRef.current(), 0)
             }
           }
         }
@@ -779,8 +854,8 @@ function GrassCutter() {
           ny = (player.y - boss.y) / playerBossDist
         }
         const desiredDist = collideDist + BOSS_KNOCKBACK_DISTANCE
-        player.x = Math.max(player.radius, Math.min(width - player.radius, boss.x + nx * desiredDist))
-        player.y = Math.max(player.radius, Math.min(height - player.radius, boss.y + ny * desiredDist))
+        player.x = clamp(boss.x + nx * desiredDist, player.radius, WORLD_WIDTH - player.radius)
+        player.y = clamp(boss.y + ny * desiredDist, player.radius, WORLD_HEIGHT - player.radius)
 
         if (player.bossTouchCooldown <= 0) {
           damageToPlayer += BOSS_TOUCH_DAMAGE
@@ -798,8 +873,8 @@ function GrassCutter() {
       bullet.x += bullet.dirX * bullet.speed
       bullet.y += bullet.dirY * bullet.speed
 
-      // 检测子弹是否出界
-      if (bullet.x < -50 || bullet.x > width + 50 || bullet.y < -50 || bullet.y > height + 50) {
+      // 检测子弹是否出界（世界边界）
+      if (bullet.x < -50 || bullet.x > WORLD_WIDTH + 50 || bullet.y < -50 || bullet.y > WORLD_HEIGHT + 50) {
         deadBullets.push(bullet.id)
         continue
       }
@@ -850,6 +925,13 @@ function GrassCutter() {
     if (player.speechTimer > 0) {
       player.speechTimer -= deltaTime
     }
+
+    // 更新摄像机（跟随玩家，裁剪到世界边界）
+    const { width: viewW, height: viewH } = canvasSizeRef.current
+    cameraRef.current = {
+      x: clamp(player.x - viewW / 2, 0, Math.max(0, WORLD_WIDTH - viewW)),
+      y: clamp(player.y - viewH / 2, 0, Math.max(0, WORLD_HEIGHT - viewH)),
+    }
   }, [gameState, currentLevel, checkWeaponCollision, checkPlayerCollision])
 
   // 渲染游戏
@@ -881,20 +963,37 @@ function GrassCutter() {
     ctx.fillStyle = bgGradient
     ctx.fillRect(0, 0, width, height)
 
-    // 绘制网格背景
+    // 计算摄像机（视口左上角，裁剪到世界边界）
+    const camera = {
+      x: clamp(player.x - width / 2, 0, Math.max(0, WORLD_WIDTH - width)),
+      y: clamp(player.y - height / 2, 0, Math.max(0, WORLD_HEIGHT - height)),
+    }
+    cameraRef.current = camera
+
+    // 世界坐标绘制：通过 translate 实现摄像机跟随
+    ctx.save()
+    ctx.translate(-camera.x, -camera.y)
+
+    // 绘制网格背景（与世界坐标对齐，仅绘制当前视口范围）
     ctx.strokeStyle = 'rgba(0, 217, 255, 0.1)'
     ctx.lineWidth = 1
     const gridSize = 50
-    for (let x = 0; x < width; x += gridSize) {
+
+    const startX = Math.floor(camera.x / gridSize) * gridSize
+    const endX = camera.x + width
+    for (let x = startX; x <= endX; x += gridSize) {
       ctx.beginPath()
-      ctx.moveTo(x, 0)
-      ctx.lineTo(x, height)
+      ctx.moveTo(x, camera.y)
+      ctx.lineTo(x, camera.y + height)
       ctx.stroke()
     }
-    for (let y = 0; y < height; y += gridSize) {
+
+    const startY = Math.floor(camera.y / gridSize) * gridSize
+    const endY = camera.y + height
+    for (let y = startY; y <= endY; y += gridSize) {
       ctx.beginPath()
-      ctx.moveTo(0, y)
-      ctx.lineTo(width, y)
+      ctx.moveTo(camera.x, y)
+      ctx.lineTo(camera.x + width, y)
       ctx.stroke()
     }
 
@@ -1218,7 +1317,7 @@ function GrassCutter() {
     
     const currentBossImage = boss?.isShooting && bossShotImage?.complete ? bossShotImage : bossImage
     
-    if (boss && currentLevel === 10) {
+    if (boss) {
       // Boss 本体
       if (currentBossImage && currentBossImage.complete) {
         ctx.save()
@@ -1370,6 +1469,9 @@ function GrassCutter() {
       )
     }
 
+    // 结束世界坐标绘制（撤销摄像机 translate）
+    ctx.restore()
+
   }, [currentLevel])
 
   // 游戏主循环
@@ -1437,17 +1539,7 @@ function GrassCutter() {
       }
       return remaining
     })
-
-    // 检查是否完成关卡
-    const config = LEVEL_CONFIGS[currentLevel - 1]
-    if (totalKills >= config.killTarget) {
-      if (currentLevel >= 10) {
-        setGameState('victory')
-      } else {
-        setGameState('levelComplete')
-      }
-    }
-  }, [currentLevel, totalKills])
+  }, [])
 
   // 放弃本次升级
   const handleSkipUpgrade = useCallback(() => {
@@ -1458,23 +1550,13 @@ function GrassCutter() {
       }
       return remaining
     })
+  }, [])
 
-    // 检查是否完成关卡
-    const config = LEVEL_CONFIGS[currentLevel - 1]
-    if (totalKills >= config.killTarget) {
-      if (currentLevel >= 10) {
-        setGameState('victory')
-      } else {
-        setGameState('levelComplete')
-      }
-    }
-  }, [currentLevel, totalKills])
-
-  // 进入下一关
+  // 进入下一关（Boss 被击败后自动触发）
   const handleNextLevel = useCallback(() => {
     const newLevel = currentLevel + 1
     console.log('[Game] Advancing to level:', newLevel)
-    
+
     // 保存进度
     const weaponState = weaponStateRef.current
     saveGame({
@@ -1486,13 +1568,22 @@ function GrassCutter() {
       weaponCount: weaponState.weapons.length,
       playerLevel,
     })
-    
-    // 重置关卡
+
+    // 重置关卡（回到“小怪阶段”）
     enemiesRef.current = []
     bossRef.current = null
     bossBulletsRef.current = []
+    spawnedEnemiesRef.current = 0
+    bossShouldSpawnRef.current = false
+    bossMaxHpRef.current = 0
+
     setBossHp(0)
+    setBossMaxHp(0)
     setKillCount(0)
+    setTotalKills(0)
+    setPendingUpgrades(0)
+
+    // 回血（保留玩家位置与武器升级）
     playerRef.current.hp = INITIAL_PLAYER.maxHp
     playerRef.current.bossTouchCooldown = 0
     playerRef.current.isHit = false
@@ -1500,88 +1591,47 @@ function GrassCutter() {
     playerRef.current.speech = ''
     playerRef.current.speechTimer = 0
     setPlayerHp(INITIAL_PLAYER.maxHp)
-    
+
     // 设置新关卡
     setCurrentLevel(newLevel)
     setGameState('playing')
-    
-    // 如果是第10关，延迟生成 Boss
-    if (newLevel === 10) {
-      setTimeout(() => {
-        const { width, height } = canvasSizeRef.current
-        if (width > 0 && height > 0 && !bossRef.current) {
-          const boss: Boss = {
-            x: width / 2,
-            y: 100,
-            radius: BOSS_CONFIG.radius,
-            hp: BOSS_CONFIG.hp,
-            maxHp: BOSS_CONFIG.hp,
-            speed: BOSS_CONFIG.speed,
-            hitFlash: 0,
-            speech: BOSS_SPEECHES[Math.floor(Math.random() * BOSS_SPEECHES.length)],
-            speechTimer: SPEECH_DURATION,
-            shootTimer: BOSS_CONFIG.shootInterval,
-            speechCooldown: BOSS_SPEECH_INTERVAL,
-            isShooting: false,
-            shootingTimer: 0,
-          }
-          bossRef.current = boss
-          setBossHp(boss.hp)
-          console.log('[Game] Boss spawned for level 10:', boss)
-        }
-      }, 100)
-    }
   }, [currentLevel, highScore, score, playerLevel])
+
+  // 同步最新“自动下一关”回调，避免在主循环里拿到旧闭包
+  useEffect(() => {
+    nextLevelCallbackRef.current = handleNextLevel
+  }, [handleNextLevel])
 
   // 死亡后重试
   const handleRetry = useCallback(() => {
     console.log('[Game] Retrying level:', currentLevel)
-    
+
     // 重置当前关卡，保留武器升级
     enemiesRef.current = []
     bossRef.current = null
     bossBulletsRef.current = []
+    spawnedEnemiesRef.current = 0
+    bossShouldSpawnRef.current = false
+    bossMaxHpRef.current = 0
+
     setBossHp(0)
+    setBossMaxHp(0)
     setKillCount(0)
     setTotalKills(0)
+    setPendingUpgrades(0)
+
+    // 玩家回满血，并回到世界中心（方便继续体验地图）
     playerRef.current.hp = INITIAL_PLAYER.maxHp
     playerRef.current.bossTouchCooldown = 0
     playerRef.current.isHit = false
     playerRef.current.hitTimer = 0
     playerRef.current.speech = ''
     playerRef.current.speechTimer = 0
-    playerRef.current.x = canvasSizeRef.current.width / 2
-    playerRef.current.y = canvasSizeRef.current.height / 2
+    playerRef.current.x = WORLD_WIDTH / 2
+    playerRef.current.y = WORLD_HEIGHT / 2
     setPlayerHp(INITIAL_PLAYER.maxHp)
-    
+
     setGameState('playing')
-    
-    // 如果是第10关，延迟重新生成 Boss
-    if (currentLevel === 10) {
-      setTimeout(() => {
-        const { width, height } = canvasSizeRef.current
-        if (width > 0 && height > 0 && !bossRef.current) {
-          const boss: Boss = {
-            x: width / 2,
-            y: 100,
-            radius: BOSS_CONFIG.radius,
-            hp: BOSS_CONFIG.hp,
-            maxHp: BOSS_CONFIG.hp,
-            speed: BOSS_CONFIG.speed,
-            hitFlash: 0,
-            speech: BOSS_SPEECHES[Math.floor(Math.random() * BOSS_SPEECHES.length)],
-            speechTimer: SPEECH_DURATION,
-            shootTimer: BOSS_CONFIG.shootInterval,
-            speechCooldown: BOSS_SPEECH_INTERVAL,
-            isShooting: false,
-            shootingTimer: 0,
-          }
-          bossRef.current = boss
-          setBossHp(boss.hp)
-          console.log('[Game] Boss respawned for retry:', boss)
-        }
-      }, 100)
-    }
   }, [currentLevel])
 
   // 保存当前游戏进度
@@ -1629,14 +1679,22 @@ function GrassCutter() {
     setScore(0)
     setPendingUpgrades(0)
     enemiesRef.current = []
+    bossRef.current = null
+    bossBulletsRef.current = []
+    spawnedEnemiesRef.current = 0
+    bossShouldSpawnRef.current = false
+    bossMaxHpRef.current = 0
+    setBossHp(0)
+    setBossMaxHp(0)
+
     playerRef.current.hp = INITIAL_PLAYER.maxHp
     playerRef.current.bossTouchCooldown = 0
     playerRef.current.isHit = false
     playerRef.current.hitTimer = 0
     playerRef.current.speech = ''
     playerRef.current.speechTimer = 0
-    playerRef.current.x = canvasSizeRef.current.width / 2
-    playerRef.current.y = canvasSizeRef.current.height / 2
+    playerRef.current.x = WORLD_WIDTH / 2
+    playerRef.current.y = WORLD_HEIGHT / 2
     setPlayerHp(INITIAL_PLAYER.maxHp)
     
     // 清除存档
@@ -1671,59 +1729,36 @@ function GrassCutter() {
   // 跳转到指定关卡
   const handleJumpToLevel = useCallback((targetLevel: number) => {
     console.log('[Dev] ========== Jumping to level:', targetLevel, '==========')
-    
+
     // 重置游戏状态
     enemiesRef.current = []
     bossRef.current = null
     bossBulletsRef.current = []
+    spawnedEnemiesRef.current = 0
+    bossShouldSpawnRef.current = false
+    bossMaxHpRef.current = 0
+
     setBossHp(0)
+    setBossMaxHp(0)
     setKillCount(0)
     setTotalKills(0)
     setPendingUpgrades(0)
+
     playerRef.current.hp = INITIAL_PLAYER.maxHp
     playerRef.current.bossTouchCooldown = 0
     playerRef.current.isHit = false
     playerRef.current.hitTimer = 0
     playerRef.current.speech = ''
     playerRef.current.speechTimer = 0
-    playerRef.current.x = canvasSizeRef.current.width / 2
-    playerRef.current.y = canvasSizeRef.current.height / 2
+    playerRef.current.x = WORLD_WIDTH / 2
+    playerRef.current.y = WORLD_HEIGHT / 2
     setPlayerHp(INITIAL_PLAYER.maxHp)
+
     setShowDevMenu(false)
-    
-    // 设置关卡
+
+    // 设置关卡（进入小怪阶段；击杀满 100 才会刷 Boss）
     setCurrentLevel(targetLevel)
     setGameState('playing')
-    
-    // 如果是第10关，延迟生成 Boss 确保状态已更新
-    if (targetLevel === 10) {
-      setTimeout(() => {
-        console.log('[Dev] Delayed boss spawn for level 10')
-        const { width, height } = canvasSizeRef.current
-        console.log('[Dev] Canvas dimensions:', { width, height })
-        
-        if (width > 0 && height > 0 && !bossRef.current) {
-          const boss: Boss = {
-            x: width / 2,
-            y: 100,
-            radius: BOSS_CONFIG.radius,
-            hp: BOSS_CONFIG.hp,
-            maxHp: BOSS_CONFIG.hp,
-            speed: BOSS_CONFIG.speed,
-            hitFlash: 0,
-            speech: BOSS_SPEECHES[Math.floor(Math.random() * BOSS_SPEECHES.length)],
-            speechTimer: SPEECH_DURATION,
-            shootTimer: BOSS_CONFIG.shootInterval,
-            speechCooldown: BOSS_SPEECH_INTERVAL,
-            isShooting: false,
-            shootingTimer: 0,
-          }
-          bossRef.current = boss
-          setBossHp(boss.hp)
-          console.log('[Dev] ✅ Boss spawned:', boss)
-        }
-      }, 100)
-    }
   }, [])
 
   // 给予满级武器（用于测试）
@@ -1900,19 +1935,17 @@ function GrassCutter() {
     }
   }, [pendingUpgrades, gameState])
 
-  // 检查关卡完成
+  // 触发 Boss：击杀满 100 小怪后（并且没有升级弹窗挡着）刷出 Boss
   useEffect(() => {
-    if (gameState === 'playing') {
-      const config = LEVEL_CONFIGS[currentLevel - 1]
-      if (totalKills >= config.killTarget && pendingUpgrades === 0) {
-        if (currentLevel >= 10) {
-          setGameState('victory')
-        } else {
-          setGameState('levelComplete')
-        }
-      }
+    if (gameState !== 'playing') return
+    if (pendingUpgrades !== 0) return
+    if (bossRef.current) return
+
+    if (bossShouldSpawnRef.current && totalKills >= ENEMIES_PER_LEVEL) {
+      bossShouldSpawnRef.current = false
+      spawnBossForLevel(currentLevel)
     }
-  }, [totalKills, currentLevel, gameState, pendingUpgrades])
+  }, [totalKills, currentLevel, gameState, pendingUpgrades, spawnBossForLevel])
 
   // 初始化和游戏循环
   useEffect(() => {
@@ -1973,76 +2006,46 @@ function GrassCutter() {
     }
   }, [])
 
-  // 敌人生成定时器 / Boss 生成
+  // 敌人生成定时器（每关最多生成 100 只；Boss 出现后不再刷怪）
   useEffect(() => {
-    console.log('[Spawn] useEffect triggered:', { gameState, currentLevel, bossExists: !!bossRef.current })
-    
-    if (gameState === 'playing') {
-      // 第10关：Boss 由 handleJumpToLevel / handleNextLevel / handleRetry 直接生成
-      // 这里只需要清除小兵定时器
-      if (currentLevel === 10) {
-        console.log('[Boss] Level 10: clearing enemy spawn timer, boss should be spawned by handler')
-        
-        // 清除可能存在的小兵定时器
-        if (spawnTimerRef.current) {
-          clearInterval(spawnTimerRef.current)
-          spawnTimerRef.current = 0
-        }
-        
-        // 如果 Boss 不存在（可能是初始化时），尝试生成
-        if (!bossRef.current) {
-          console.log('[Boss] No boss found, attempting to spawn...')
-          const { width, height } = canvasSizeRef.current
-          if (width > 0 && height > 0) {
-            const boss: Boss = {
-              x: width / 2,
-              y: 100,
-              radius: BOSS_CONFIG.radius,
-              hp: BOSS_CONFIG.hp,
-              maxHp: BOSS_CONFIG.hp,
-              speed: BOSS_CONFIG.speed,
-              hitFlash: 0,
-              speech: BOSS_SPEECHES[Math.floor(Math.random() * BOSS_SPEECHES.length)],
-              speechTimer: SPEECH_DURATION,
-              shootTimer: BOSS_CONFIG.shootInterval,
-              speechCooldown: BOSS_SPEECH_INTERVAL,
-              isShooting: false,
-              shootingTimer: 0,
-            }
-            bossRef.current = boss
-            setBossHp(boss.hp)
-            console.log('[Boss] ✅ Boss spawned in useEffect!', boss)
-          }
-        } else {
-          console.log('[Boss] Boss already exists:', bossRef.current)
-        }
-        
-        // Boss 关不需要小兵定时器，直接返回
-        return () => {
-          console.log('[Spawn] Cleanup for level 10')
-          if (spawnTimerRef.current) {
-            clearInterval(spawnTimerRef.current)
-            spawnTimerRef.current = 0
-          }
-        }
+    console.log('[Spawn] useEffect triggered:', {
+      gameState,
+      currentLevel,
+      bossExists: !!bossRef.current,
+      spawned: spawnedEnemiesRef.current,
+    })
+
+    if (gameState !== 'playing') return
+
+    // Boss 出现时/或已刷满 100：确保停掉刷怪定时器
+    if (bossRef.current || spawnedEnemiesRef.current >= ENEMIES_PER_LEVEL) {
+      if (spawnTimerRef.current) {
+        clearInterval(spawnTimerRef.current)
+        spawnTimerRef.current = 0
       }
-      
-      // 其他关卡正常生成小兵
-      console.log('[Spawn] Setting up enemy spawn timer for level', currentLevel)
-      const config = LEVEL_CONFIGS[currentLevel - 1]
-      spawnTimerRef.current = window.setInterval(spawnEnemy, config.spawnInterval)
-      
-      return () => {
-        console.log('[Spawn] Cleanup: clearing spawn timer')
-        if (spawnTimerRef.current) {
-          clearInterval(spawnTimerRef.current)
-          spawnTimerRef.current = 0
-        }
+      return
+    }
+
+    const config = getLevelConfig(currentLevel)
+    console.log('[Spawn] Setting up enemy spawn timer for level', currentLevel, 'interval', config.spawnInterval)
+
+    if (spawnTimerRef.current) {
+      clearInterval(spawnTimerRef.current)
+      spawnTimerRef.current = 0
+    }
+
+    spawnTimerRef.current = window.setInterval(spawnEnemy, config.spawnInterval)
+
+    return () => {
+      console.log('[Spawn] Cleanup: clearing spawn timer')
+      if (spawnTimerRef.current) {
+        clearInterval(spawnTimerRef.current)
+        spawnTimerRef.current = 0
       }
     }
   }, [gameState, currentLevel, spawnEnemy])
 
-  const levelConfig = LEVEL_CONFIGS[currentLevel - 1]
+  const levelConfig = getLevelConfig(currentLevel)
 
   return (
     <div className={styles.container} ref={containerRef}>
@@ -2076,13 +2079,13 @@ function GrassCutter() {
           <div className={styles.devMenuSection}>
             <span className={styles.devMenuLabel}>关卡跳转</span>
             <div className={styles.devLevelGrid}>
-              {LEVEL_CONFIGS.map((config) => (
+              {Array.from({ length: 20 }, (_, i) => i + 1).map((level) => (
                 <button
-                  key={config.level}
-                  className={`${styles.devLevelBtn} ${currentLevel === config.level ? styles.active : ''}`}
-                  onClick={() => handleJumpToLevel(config.level)}
+                  key={level}
+                  className={`${styles.devLevelBtn} ${currentLevel === level ? styles.active : ''}`}
+                  onClick={() => handleJumpToLevel(level)}
                 >
-                  {config.level === 10 ? '👑' : ''} {config.level}
+                  {level}
                 </button>
               ))}
             </div>
@@ -2125,16 +2128,16 @@ function GrassCutter() {
         <span className={styles.playerHpText}>{playerHp} / {INITIAL_PLAYER.maxHp}</span>
       </div>
 
-      {/* Boss 血条（仅在第10关显示） */}
-      {currentLevel === 10 && bossRef.current && (
+      {/* Boss 血条（每关：击杀 100 小怪后出现） */}
+      {bossRef.current && bossMaxHp > 0 && (
         <div className={styles.bossHpContainer}>
           <div className={styles.bossName}>👑 蛋卷大魔王</div>
           <div className={styles.bossHpBar}>
-            <div 
-              className={styles.bossHpFill} 
-              style={{ width: `${(bossHp / BOSS_CONFIG.hp) * 100}%` }}
+            <div
+              className={styles.bossHpFill}
+              style={{ width: `${(bossHp / bossMaxHp) * 100}%` }}
             />
-            <span className={styles.bossHpText}>{bossHp} / {BOSS_CONFIG.hp}</span>
+            <span className={styles.bossHpText}>{bossHp} / {bossMaxHp}</span>
           </div>
         </div>
       )}
@@ -2220,28 +2223,6 @@ function GrassCutter() {
         </div>
       )}
 
-      {/* 关卡完成弹窗 */}
-      {gameState === 'levelComplete' && (
-        <div className={styles.modal}>
-          <div className={styles.modalContent}>
-            <h2 className={styles.modalTitle}>🎉 关卡完成!</h2>
-            <p className={styles.modalSubtitle}>第 {currentLevel} 关</p>
-            <div className={styles.resultStats}>
-              <div className={styles.resultItem}>
-                <span>击杀数</span>
-                <span>{totalKills}</span>
-              </div>
-              <div className={styles.resultItem}>
-                <span>获得积分</span>
-                <span>{score}</span>
-              </div>
-            </div>
-            <button className={styles.actionBtn} onClick={handleNextLevel}>
-              进入第 {currentLevel + 1} 关
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* 死亡弹窗 */}
       {gameState === 'dead' && (
