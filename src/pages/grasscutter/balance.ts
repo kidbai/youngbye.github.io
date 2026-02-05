@@ -5,7 +5,8 @@ export const WORLD_HEIGHT = 5000
 
 export const ENEMIES_PER_LEVEL = 100
 
-export const ENEMY_BASE_HP = 500
+// 测试用：降低怪物血量以便快速测试升级
+export const ENEMY_BASE_HP = 30
 export const ENEMY_HP_GROWTH = 1.15
 export const BOSS_HP_FACTOR = 8
 
