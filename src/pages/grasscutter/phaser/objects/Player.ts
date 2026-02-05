@@ -34,6 +34,7 @@ export class Player extends Phaser.GameObjects.Container {
   public bossTouchCooldown: number = 0
 
   private avatar: Phaser.GameObjects.Image
+  private hitGlow: Phaser.GameObjects.Graphics // 受击红色光环
   private speechText: Phaser.GameObjects.Text | null = null
 
   constructor(scene: Phaser.Scene, config: Partial<PlayerConfig> = {}) {
@@ -44,6 +45,11 @@ export class Player extends Phaser.GameObjects.Container {
     this.maxHp = cfg.maxHp
     this.speed = cfg.speed
     this.radius = cfg.radius
+
+    // 受击红色光环（放在头像下层）
+    this.hitGlow = scene.add.graphics()
+    this.hitGlow.setVisible(false)
+    this.add(this.hitGlow)
 
     // 头像（使用圆形裁剪的纹理）
     this.avatar = scene.add.image(0, 0, 'yuanxiao-circle')
@@ -61,10 +67,23 @@ export class Player extends Phaser.GameObjects.Container {
     body.setCollideWorldBounds(true)
   }
 
-  /** 受击效果（切换贴图） */
+  /** 受击效果（红色光环，不切换贴图） */
   setHit(hit: boolean): void {
     this.isHit = hit
-    this.avatar.setTexture(hit ? 'yuanxiao-shoted-circle' : 'yuanxiao-circle')
+    
+    if (hit) {
+      // 绘制红色光环
+      this.hitGlow.clear()
+      // 外圈光晕
+      this.hitGlow.fillStyle(0xff3232, 0.35)
+      this.hitGlow.fillCircle(0, 0, this.radius + 10)
+      // 红色边框
+      this.hitGlow.lineStyle(3, 0xff0000, 0.6)
+      this.hitGlow.strokeCircle(0, 0, this.radius + 16)
+      this.hitGlow.setVisible(true)
+    } else {
+      this.hitGlow.setVisible(false)
+    }
   }
 
   /** 显示话术气泡 */

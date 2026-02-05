@@ -54,7 +54,10 @@ export class PreloadScene extends Phaser.Scene {
   /** 生成带圆形裁剪的派生纹理（用于头像显示，保持原图比例，中心裁剪，高清支持） */
   private generateCircleTextures(): void {
     const keys = ['minion', 'minion2', 'monster', 'yuanxiao', 'yuanxiao-shoted', 'boss', 'boss-shot']
-    const dpr = window.devicePixelRatio || 1
+    
+    // 目标纹理尺寸（足够大以保证高清显示，但不会太大导致性能问题）
+    // 考虑到游戏中最大显示尺寸约 100px，使用 256px 可以保证在高 DPI 屏幕上也清晰
+    const TARGET_SIZE = 256
 
     keys.forEach((key) => {
       const circleKey = `${key}-circle`
@@ -65,33 +68,37 @@ export class PreloadScene extends Phaser.Scene {
       const srcW = srcFrame.width
       const srcH = srcFrame.height
       
-      // 取最小边作为输出尺寸（保持比例，中心裁剪）
-      const size = Math.min(srcW, srcH)
-      const radius = size / 2
+      // 取最小边作为源裁剪尺寸（保持比例，中心裁剪）
+      const cropSize = Math.min(srcW, srcH)
 
-      // 创建高清 canvas（考虑设备像素比，但保持纹理尺寸不变）
+      // 创建目标尺寸的 canvas
       const canvas = document.createElement('canvas')
-      canvas.width = size
-      canvas.height = size
+      canvas.width = TARGET_SIZE
+      canvas.height = TARGET_SIZE
       const ctx = canvas.getContext('2d')!
 
-      // 启用图像平滑
+      // 启用高质量图像平滑
       ctx.imageSmoothingEnabled = true
       ctx.imageSmoothingQuality = 'high'
 
       // 绘制圆形裁剪路径
+      const radius = TARGET_SIZE / 2
       ctx.beginPath()
       ctx.arc(radius, radius, radius, 0, Math.PI * 2)
       ctx.closePath()
       ctx.clip()
 
-      // 计算中心裁剪的偏移（源图居中）
-      const offsetX = (srcW - size) / 2
-      const offsetY = (srcH - size) / 2
+      // 计算源图中心裁剪的偏移
+      const offsetX = (srcW - cropSize) / 2
+      const offsetY = (srcH - cropSize) / 2
 
-      // 获取原始图片并绘制（中心裁剪，使用完整源尺寸以保证清晰度）
+      // 获取原始图片并绘制（从源图中心裁剪 cropSize x cropSize，缩放到 TARGET_SIZE x TARGET_SIZE）
       const srcImage = srcTexture.getSourceImage() as HTMLImageElement
-      ctx.drawImage(srcImage, offsetX, offsetY, size, size, 0, 0, size, size)
+      ctx.drawImage(
+        srcImage,
+        offsetX, offsetY, cropSize, cropSize,  // 源区域
+        0, 0, TARGET_SIZE, TARGET_SIZE          // 目标区域
+      )
 
       // 添加到纹理管理器
       this.textures.addCanvas(circleKey, canvas)

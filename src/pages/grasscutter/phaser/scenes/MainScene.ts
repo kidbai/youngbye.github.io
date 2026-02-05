@@ -279,6 +279,7 @@ export class MainScene extends Phaser.Scene {
         this.player.showSpeech(PLAYER_HIT_SPEECHES[Math.floor(Math.random() * PLAYER_HIT_SPEECHES.length)])
         enemy.destroy()
         this.enemies.remove(enemy)
+        this.emitState() // 更新 UI 血条
       }
     })
   }
@@ -315,6 +316,8 @@ export class MainScene extends Phaser.Scene {
         // 限制在世界边界内
         this.player.x = clamp(this.player.x, this.player.radius, WORLD_WIDTH - this.player.radius)
         this.player.y = clamp(this.player.y, this.player.radius, WORLD_HEIGHT - this.player.radius)
+
+        this.emitState() // 更新 UI 血条
       }
     }
   }
@@ -371,6 +374,7 @@ export class MainScene extends Phaser.Scene {
         this.player.showSpeech(PLAYER_HIT_SPEECHES[Math.floor(Math.random() * PLAYER_HIT_SPEECHES.length)])
         bullet.destroy()
         this.bossBullets.remove(bullet)
+        this.emitState() // 更新 UI 血条
       }
     })
   }
