@@ -4,10 +4,11 @@
 
 import Phaser from 'phaser'
 
-export class EnemyBullet extends Phaser.GameObjects.Ellipse {
+export class EnemyBullet extends Phaser.GameObjects.Image {
   public damage: number
   public speed: number
   public bulletRadius: number
+
   private vx: number
   private vy: number
 
@@ -21,13 +22,20 @@ export class EnemyBullet extends Phaser.GameObjects.Ellipse {
     speed: number,
     damage: number
   ) {
-    super(scene, x, y, radius * 2, radius * 2, 0x60a5fa)
+    super(scene, x, y, 'px-bullet')
 
     this.damage = damage
     this.speed = speed
     this.bulletRadius = radius
+
     this.vx = dirX * speed
     this.vy = dirY * speed
+
+    this.setTint(0x60a5fa)
+    this.setRotation(Math.atan2(this.vy, this.vx))
+
+    const d = this.bulletRadius * 2 + 2
+    this.setDisplaySize(d, d)
 
     scene.add.existing(this)
   }
@@ -38,6 +46,7 @@ export class EnemyBullet extends Phaser.GameObjects.Ellipse {
     if (!body) return
 
     body.setCircle(this.bulletRadius)
+    body.setOffset(-this.bulletRadius, -this.bulletRadius)
     body.setVelocity(this.vx, this.vy)
   }
 

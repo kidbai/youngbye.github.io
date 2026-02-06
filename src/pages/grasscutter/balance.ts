@@ -136,9 +136,10 @@ export const LEVEL_SPAWN_INTERVAL_BASE = 1200
 export const LEVEL_SPAWN_INTERVAL_MIN = 450
 export const LEVEL_SPAWN_INTERVAL_DECAY = 50
 
-export const LEVEL_ENEMY_SPEED_BASE = 1.0
-export const LEVEL_ENEMY_SPEED_GROWTH = 0.06
-export const LEVEL_ENEMY_SPEED_MAX = 3.5
+// 敌人移动速度曲线：整体下调，缓解“贴脸过快 + 扎堆”
+export const LEVEL_ENEMY_SPEED_BASE = 0.85
+export const LEVEL_ENEMY_SPEED_GROWTH = 0.045
+export const LEVEL_ENEMY_SPEED_MAX = 2.8
 
 // ==================== 普通怪物攻击（随关卡提升） ====================
 

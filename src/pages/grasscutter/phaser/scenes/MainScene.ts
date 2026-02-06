@@ -175,13 +175,11 @@ export class MainScene extends Phaser.Scene {
       this.enemyBullets.remove(bullet, true, true)
     })
 
-    // 地形碰撞：大便撞墙也会落地爆开
+    // 地形碰撞：大便撞墙会“落地并开始读条”，不再立刻爆炸结算（给玩家反应时间）
     this.physics.add.collider(this.poopProjectiles, this.terrainLayer, (obj) => {
-      const poop = obj as PoopProjectile
+      const poop = obj as unknown as PoopProjectile
       if (!poop.active) return
-      this.onPoopImpact(poop)
-      poop.destroy()
-      this.poopProjectiles.remove(poop, true, true)
+      poop.beginArming(poop.x, poop.y)
     })
 
     // 设置敌人之间的碰撞（防止重叠）
@@ -424,36 +422,142 @@ export class MainScene extends Phaser.Scene {
   private updateEnemies(delta: number): void {
     const level = this.level
 
+    // 收集活跃敌人（用于轻量分散）
+    const activeEnemies: Enemy[] = []
     this.enemies.getChildren().forEach((obj) => {
-      const enemy = obj as Enemy
-      if (!enemy.active) return
+      const e = obj as Enemy
+      if (e.active) activeEnemies.push(e)
+    })
+
+    // 轻量分桶：避免 O(n^2)
+    const CELL_SIZE = 140
+    const keyMul = 1024
+    const grid = new Map<number, Enemy[]>()
+
+    for (const e of activeEnemies) {
+      const cx = Math.floor(e.x / CELL_SIZE)
+      const cy = Math.floor(e.y / CELL_SIZE)
+      const k = cx * keyMul + cy
+      const list = grid.get(k)
+      if (list) list.push(e)
+      else grid.set(k, [e])
+
+      // 给近战怪一个固定“绕圈方向”，减少扎堆贴脸
+      if (e.getData('swirlDir') === undefined) {
+        e.setData('swirlDir', Math.random() < 0.5 ? -1 : 1)
+      }
+    }
+
+    const computeSeparation = (self: Enemy): { x: number; y: number } => {
+      const cx = Math.floor(self.x / CELL_SIZE)
+      const cy = Math.floor(self.y / CELL_SIZE)
+
+      // 半径阈值：只处理很近的重叠
+      const minSep = self.radius * 1.25
+      const minSep2 = minSep * minSep
+
+      let sx = 0
+      let sy = 0
+
+      for (let ox = -1; ox <= 1; ox++) {
+        for (let oy = -1; oy <= 1; oy++) {
+          const k = (cx + ox) * keyMul + (cy + oy)
+          const list = grid.get(k)
+          if (!list) continue
+
+          for (const other of list) {
+            if (other === self || !other.active) continue
+
+            const dx = self.x - other.x
+            const dy = self.y - other.y
+            const d2 = dx * dx + dy * dy
+            if (d2 <= 0 || d2 > minSep2) continue
+
+            const d = Math.sqrt(d2)
+            const nx = dx / d
+            const ny = dy / d
+
+            // 越近推得越开
+            const t = (minSep - d) / minSep
+            sx += nx * t
+            sy += ny * t
+          }
+        }
+      }
+
+      return { x: sx, y: sy }
+    }
+
+    for (const enemy of activeEnemies) {
+      const body = enemy.getBody()
 
       const dx = this.player.x - enemy.x
       const dy = this.player.y - enemy.y
       const dist = Math.sqrt(dx * dx + dy * dy)
 
-      // 行为：不同类型有不同的走位策略
-      if (enemy.enemyType === 'melee') {
-        enemy.chaseTarget(this.player.x, this.player.y)
-      } else {
-        // shooter/thrower：保持距离
-        const body = enemy.getBody()
-        const minDist = enemy.enemyType === 'shooter' ? 220 : 260
-        const maxDist = enemy.enemyType === 'shooter' ? 380 : 420
+      let vx = 0
+      let vy = 0
 
-        if (dist > 0) {
+      // 行为：不同类型有不同的走位策略
+      if (dist > 0) {
+        const nx = dx / dist
+        const ny = dy / dist
+
+        if (enemy.enemyType === 'melee') {
+          // 近战：追击 + 轻微绕圈
+          const swirlDir = (enemy.getData('swirlDir') as number) ?? 1
+          const tx = -ny
+          const ty = nx
+          const swirl = 0.16
+
+          vx = nx * enemy.speed + tx * enemy.speed * swirl * swirlDir
+          vy = ny * enemy.speed + ty * enemy.speed * swirl * swirlDir
+        } else {
+          // shooter/thrower：保持距离
+          const minDist = enemy.enemyType === 'shooter' ? 220 : 260
+          const maxDist = enemy.enemyType === 'shooter' ? 380 : 420
+
           if (dist > maxDist) {
-            body.setVelocity((dx / dist) * enemy.speed, (dy / dist) * enemy.speed)
+            vx = nx * enemy.speed
+            vy = ny * enemy.speed
           } else if (dist < minDist) {
-            body.setVelocity((-dx / dist) * enemy.speed * 0.95, (-dy / dist) * enemy.speed * 0.95)
+            vx = -nx * enemy.speed * 0.95
+            vy = -ny * enemy.speed * 0.95
           } else {
             // 中间距离：横移一点点，让战斗更“活”
-            const sx = -dy / dist
-            const sy = dx / dist
-            body.setVelocity(sx * enemy.speed * 0.35, sy * enemy.speed * 0.35)
+            const tx = -ny
+            const ty = nx
+            vx = tx * enemy.speed * 0.35
+            vy = ty * enemy.speed * 0.35
           }
         }
       }
+
+      // 轻量分散：对速度做一个小叠加，减少堆叠
+      const sep = computeSeparation(enemy)
+      if (sep.x !== 0 || sep.y !== 0) {
+        const sLen = Math.sqrt(sep.x * sep.x + sep.y * sep.y)
+        if (sLen > 0) {
+          const snx = sep.x / sLen
+          const sny = sep.y / sLen
+
+          const typeFactor = enemy.enemyType === 'melee' ? 1 : 0.55
+          const sepSpeed = enemy.speed * 0.55 * typeFactor
+          vx += snx * sepSpeed
+          vy += sny * sepSpeed
+        }
+      }
+
+      // 限速：避免分散叠加导致“突然加速”
+      const maxSpeed = enemy.speed * 1.1
+      const vLen = Math.sqrt(vx * vx + vy * vy)
+      if (vLen > maxSpeed && vLen > 0) {
+        const k = maxSpeed / vLen
+        vx *= k
+        vy *= k
+      }
+
+      body.setVelocity(vx, vy)
 
       enemy.updateEnemy(delta)
 
@@ -464,13 +568,9 @@ export class MainScene extends Phaser.Scene {
 
       const contactRange = this.player.radius + enemy.radius
       if (dist < contactRange && contactCd <= 0) {
-        const dmg = enemy.enemyType === 'melee'
-          ? getMeleeEnemyAttackDamage(level)
-          : Math.round(3 + 0.3 * level)
+        const dmg = enemy.enemyType === 'melee' ? getMeleeEnemyAttackDamage(level) : Math.round(3 + 0.3 * level)
 
-        const interval = enemy.enemyType === 'melee'
-          ? getMeleeEnemyAttackIntervalMs(level)
-          : 950
+        const interval = enemy.enemyType === 'melee' ? getMeleeEnemyAttackIntervalMs(level) : 950
 
         this.player.takeDamage(dmg)
         this.player.showSpeech(PLAYER_HIT_SPEECHES[Math.floor(Math.random() * PLAYER_HIT_SPEECHES.length)])
@@ -490,7 +590,7 @@ export class MainScene extends Phaser.Scene {
       if (enemy.enemyType === 'thrower') {
         this.tryEnemyThrow(enemy, delta)
       }
-    })
+    }
   }
 
   private tryEnemyShoot(enemy: Enemy, dx: number, dy: number, dist: number, delta: number): void {
@@ -594,7 +694,7 @@ export class MainScene extends Phaser.Scene {
     })
   }
 
-  private updatePoopProjectiles(_delta: number): void {
+  private updatePoopProjectiles(delta: number): void {
     const worldW = this.registry.get('worldWidth') || WORLD_WIDTH
     const worldH = this.registry.get('worldHeight') || WORLD_HEIGHT
 
@@ -608,7 +708,9 @@ export class MainScene extends Phaser.Scene {
         return
       }
 
-      if (poop.reachedTarget()) {
+      // 飞行 → arming → fuse 到期 → 起爆结算
+      const shouldExplode = poop.updatePoop(delta)
+      if (shouldExplode) {
         this.onPoopImpact(poop)
         poop.destroy()
         this.poopProjectiles.remove(poop, true, true)

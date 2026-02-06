@@ -4,10 +4,11 @@
 
 import Phaser from 'phaser'
 
-export class BossBullet extends Phaser.GameObjects.Ellipse {
+export class BossBullet extends Phaser.GameObjects.Image {
   public damage: number
   public speed: number
   public bulletRadius: number
+
   private vx: number
   private vy: number
 
@@ -21,13 +22,22 @@ export class BossBullet extends Phaser.GameObjects.Ellipse {
     speed: number,
     damage: number
   ) {
-    super(scene, x, y, radius * 2, radius * 2, 0xff6600)
+    super(scene, x, y, 'px-bullet-big')
 
     this.damage = damage
     this.speed = speed
     this.bulletRadius = radius
+
     this.vx = dirX * speed
     this.vy = dirY * speed
+
+    this.setTint(0xff6600)
+
+    // 大球形弹体方向感不强，但旋转也不会突兀
+    this.setRotation(Math.atan2(this.vy, this.vx))
+
+    const d = this.bulletRadius * 2 + 2
+    this.setDisplaySize(d, d)
 
     scene.add.existing(this)
   }
@@ -38,6 +48,7 @@ export class BossBullet extends Phaser.GameObjects.Ellipse {
     if (!body) return
 
     body.setCircle(this.bulletRadius)
+    body.setOffset(-this.bulletRadius, -this.bulletRadius)
     body.setVelocity(this.vx, this.vy)
   }
 

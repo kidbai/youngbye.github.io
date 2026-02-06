@@ -17,7 +17,7 @@ export interface PlayerExplosiveProjectileConfig {
   color?: number
 }
 
-export class PlayerExplosiveProjectile extends Phaser.GameObjects.Ellipse {
+export class PlayerExplosiveProjectile extends Phaser.GameObjects.Image {
   public damage: number
   public explosionRadius: number
   public projectileRadius: number
@@ -29,7 +29,7 @@ export class PlayerExplosiveProjectile extends Phaser.GameObjects.Ellipse {
   private vy: number
 
   constructor(scene: Phaser.Scene, cfg: PlayerExplosiveProjectileConfig) {
-    super(scene, cfg.x, cfg.y, cfg.radius * 2, cfg.radius * 2, cfg.color ?? 0xfbbf24)
+    super(scene, cfg.x, cfg.y, 'px-projectile')
 
     this.damage = cfg.damage
     this.explosionRadius = cfg.explosionRadius
@@ -38,8 +38,17 @@ export class PlayerExplosiveProjectile extends Phaser.GameObjects.Ellipse {
     this.startX = cfg.x
     this.startY = cfg.y
     this.maxRange = cfg.range
+
     this.vx = cfg.dirX * cfg.speed
     this.vy = cfg.dirY * cfg.speed
+
+    this.setTint(cfg.color ?? 0xfbbf24)
+
+    // 炸弹贴图“引信”在右上，随飞行方向旋转
+    this.setRotation(Math.atan2(this.vy, this.vx))
+
+    const d = this.projectileRadius * 2 + 4
+    this.setDisplaySize(d, d)
 
     scene.add.existing(this)
   }
@@ -50,6 +59,7 @@ export class PlayerExplosiveProjectile extends Phaser.GameObjects.Ellipse {
     if (!body) return
 
     body.setCircle(this.projectileRadius)
+    body.setOffset(-this.projectileRadius, -this.projectileRadius)
     body.setVelocity(this.vx, this.vy)
   }
 
