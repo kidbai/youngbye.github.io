@@ -71,6 +71,8 @@ function GrassCutter() {
 
   // 升级卡池（Phaser 下发的 3 选 1）
   const [upgradeOptions, setUpgradeOptions] = useState<UpgradeOption[]>([])
+  // 升级处理中（防重复点击）
+  const [upgradeProcessing, setUpgradeProcessing] = useState(false)
 
   // UI 状态
   const [showDevMenu, setShowDevMenu] = useState(false)
@@ -119,6 +121,7 @@ function GrassCutter() {
 
     const handleNeedUpgrade = (options: UpgradeOption[]) => {
       setUpgradeOptions(options)
+      setUpgradeProcessing(false) // 重置处理状态，允许新一轮点击
     }
 
     eventBus.on(Events.STATE_UPDATE, handleStateUpdate)
@@ -345,8 +348,13 @@ function GrassCutter() {
   }, [level, highScore, score, gunKey, gunDamageMul, gunFireRateMul, gunRangeMul, evolveMisses, weaponDamage, weaponRange, weaponRotationSpeed, weaponCount, playerLevel, navigate])
 
   const handleUpgrade = useCallback((option: UpgradeOption) => {
+    // 防重复点击
+    if (upgradeProcessing) return
+    setUpgradeProcessing(true)
+    // 立即清空选项，显示"抽取中"状态
+    setUpgradeOptions([])
     emitApplyUpgrade(option)
-  }, [])
+  }, [upgradeProcessing])
 
   const handleRetry = useCallback(() => {
     emitRestart()
@@ -539,8 +547,9 @@ function GrassCutter() {
                   return (
                     <button
                       key={opt.id}
-                      className={`${styles.upgradeCard} ${styles[`rarity_${opt.rarity}`]}`}
-                      onClick={() => handleUpgrade(opt)}
+                      className={`${styles.upgradeCard} ${styles[`rarity_${opt.rarity}`]}${upgradeProcessing ? ` ${styles.disabled}` : ''}`}
+                      onPointerDown={() => handleUpgrade(opt)}
+                      disabled={upgradeProcessing}
                     >
                       <div className={styles.upgradeCardTop}>
                         <span className={styles.upgradeIcon}>{icon}</span>

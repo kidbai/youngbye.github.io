@@ -1,5 +1,8 @@
 /**
  * GrassCutter Phaser - 事件总线 (React ↔ Phaser)
+ * 
+ * 使用 globalThis 单例保证 React 与 Phaser 端使用同一个 eventBus 实例，
+ * 即使模块被多次加载（HMR / 动态 import）也能保证事件互通。
  */
 
 import type { GameSnapshot, MoveVector, UpgradeOption } from './types'
@@ -62,8 +65,22 @@ class EventBus {
   }
 }
 
-/** 单例，供 React 组件与 Phaser Scene 共用 */
-export const eventBus = new EventBus()
+/** 全局单例 key（避免与其他项目冲突） */
+const GLOBAL_KEY = '__GrassCutter_eventBus__'
+
+/**
+ * 单例：供 React 组件与 Phaser Scene 共用
+ * 使用 globalThis 保证即使模块重复加载也能互通
+ */
+function getOrCreateEventBus(): EventBus {
+  const g = globalThis as unknown as Record<string, EventBus | undefined>
+  if (!g[GLOBAL_KEY]) {
+    g[GLOBAL_KEY] = new EventBus()
+  }
+  return g[GLOBAL_KEY]!
+}
+
+export const eventBus = getOrCreateEventBus()
 
 /** 类型安全的快捷发射 */
 export const emitStateUpdate = (snapshot: GameSnapshot) =>

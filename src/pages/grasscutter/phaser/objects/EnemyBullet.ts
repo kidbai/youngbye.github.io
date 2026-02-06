@@ -12,6 +12,12 @@ export class EnemyBullet extends Phaser.GameObjects.Image {
   private vx: number
   private vy: number
 
+  /** 子弹起点（用于计算射程） */
+  private startX: number
+  private startY: number
+  /** 最大射程（像素），超过则销毁 */
+  private maxRange: number
+
   constructor(
     scene: Phaser.Scene,
     x: number,
@@ -20,13 +26,18 @@ export class EnemyBullet extends Phaser.GameObjects.Image {
     dirX: number,
     dirY: number,
     speed: number,
-    damage: number
+    damage: number,
+    maxRange = 9999
   ) {
     super(scene, x, y, 'px-bullet')
 
     this.damage = damage
     this.speed = speed
     this.bulletRadius = radius
+    this.maxRange = maxRange
+
+    this.startX = x
+    this.startY = y
 
     this.vx = dirX * speed
     this.vy = dirY * speed
@@ -52,6 +63,18 @@ export class EnemyBullet extends Phaser.GameObjects.Image {
 
   isOutOfBounds(worldWidth: number, worldHeight: number): boolean {
     return this.x < -50 || this.x > worldWidth + 50 || this.y < -50 || this.y > worldHeight + 50
+  }
+
+  /** 综合判断：超出射程 / 出界 → 应销毁 */
+  shouldDestroy(worldWidth: number, worldHeight: number): boolean {
+    if (this.isOutOfBounds(worldWidth, worldHeight)) return true
+
+    // 平方距离，避免 sqrt
+    const dx = this.x - this.startX
+    const dy = this.y - this.startY
+    const distSq = dx * dx + dy * dy
+    const maxSq = this.maxRange * this.maxRange
+    return distSq >= maxSq
   }
 
   getBody(): Phaser.Physics.Arcade.Body {

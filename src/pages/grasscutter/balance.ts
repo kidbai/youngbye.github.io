@@ -10,6 +10,9 @@ export const ENEMIES_PER_LEVEL = 100
 
 export const PLAYER_MAX_HP = 100
 
+/** 玩家移动速度（像素/秒）：调低以提升手感与躲避难度 */
+export const PLAYER_SPEED = 280
+
 // 每击杀多少只怪物获得一次升级
 // 说明：MainScene 的升级逻辑是按累计击杀（totalKills）计算，因此该值会显著影响整局节奏。
 export const KILLS_PER_UPGRADE = 10
@@ -178,6 +181,12 @@ export function getShooterEnemyBulletSpeed(level: number): number {
 export function getShooterEnemyBulletDamage(level: number): number {
   return Math.round(6 + 0.6 * level)
 }
+
+/** 射击怪开火距离阈值（玩家必须进入该范围内才会被射击） */
+export const SHOOTER_FIRE_RANGE = 520
+
+/** 敌方普通子弹最大飞行距离（超过即销毁） */
+export const ENEMY_BULLET_MAX_RANGE = 650
 
 // 丢大便怪：投掷落点范围伤害（可选残留区）
 export function getThrowerEnemyThrowIntervalMs(level: number): number {

@@ -577,6 +577,13 @@
   transform: translateY(-1px);
 }
 
+.upgradeCard.disabled,
+.upgradeCard:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+  cursor: not-allowed;
+}
+
 .upgradeCardTop {
   display: flex;
   align-items: center;

@@ -39,6 +39,9 @@ import {
   POOP_FIELD_DURATION_MS,
   POOP_FIELD_TICK_MS,
   getPoopFieldTickDamage,
+  SHOOTER_FIRE_RANGE,
+  ENEMY_BULLET_MAX_RANGE,
+  PLAYER_SPEED,
 } from '../../balance'
 import { Player } from '../objects/Player'
 import { Enemy } from '../objects/Enemy'
@@ -53,7 +56,7 @@ import { SaveSystem } from '../systems/SaveSystem'
 import { PlayerBullet } from '../objects/PlayerBullet'
 import { PlayerExplosiveProjectile } from '../objects/PlayerExplosiveProjectile'
 import { ExplosionFx } from '../objects/ExplosionFx'
-import { createOverworldMap, isBlockedAtWorldXY } from '../maps/OverworldMap'
+import { createOverworldMap, isBlockedAtWorldXY, FULL_COLLISION_TILE_IDS } from '../maps/OverworldMap'
 
 /** 玩家被击中时的重庆话骚话 */
 const PLAYER_HIT_SPEECHES = [
@@ -159,23 +162,30 @@ export class MainScene extends Phaser.Scene {
     // 地形碰撞：敌人会被地形挡住
     this.physics.add.collider(this.enemies, this.terrainLayer)
 
-    // 地形碰撞：Boss 子弹撞墙即销毁
+    // 地形碰撞：Boss 子弹撞墙即销毁（仅森林/岩壁，河流不阻挡）
     this.physics.add.collider(this.bossBullets, this.terrainLayer, (obj) => {
       const bullet = obj as BossBullet
       if (!bullet.active) return
       bullet.destroy()
       this.bossBullets.remove(bullet, true, true)
+    }, (obj, tile) => {
+      // 仅与森林/岩壁碰撞，河流不阻挡子弹
+      const t = tile as Phaser.Tilemaps.Tile
+      return FULL_COLLISION_TILE_IDS.includes(t.index)
     })
 
-    // 地形碰撞：普通敌人子弹撞墙即销毁
+    // 地形碰撞：普通敌人子弹撞墙即销毁（仅森林/岩壁，河流不阻挡）
     this.physics.add.collider(this.enemyBullets, this.terrainLayer, (obj) => {
       const bullet = obj as EnemyBullet
       if (!bullet.active) return
       bullet.destroy()
       this.enemyBullets.remove(bullet, true, true)
+    }, (obj, tile) => {
+      const t = tile as Phaser.Tilemaps.Tile
+      return FULL_COLLISION_TILE_IDS.includes(t.index)
     })
 
-    // 地形碰撞：大便撞墙会“落地并开始读条”，不再立刻爆炸结算（给玩家反应时间）
+    // 地形碰撞：大便撞墙会"落地并开始读条"，不再立刻爆炸结算（给玩家反应时间）
     this.physics.add.collider(this.poopProjectiles, this.terrainLayer, (obj) => {
       const poop = obj as unknown as PoopProjectile
       if (!poop.active) return
@@ -199,6 +209,7 @@ export class MainScene extends Phaser.Scene {
       y: startPos.y,
       hp: PLAYER_MAX_HP,
       maxHp: PLAYER_MAX_HP,
+      speed: PLAYER_SPEED,
     })
 
     // 地形碰撞：玩家会被地形挡住
@@ -209,12 +220,15 @@ export class MainScene extends Phaser.Scene {
     this.playerBullets = this.gunSystem.getBulletsGroup()
     this.playerProjectiles = this.gunSystem.getProjectilesGroup()
 
-    // 地形碰撞：玩家子弹/投射物撞墙即销毁（避免穿墙）
+    // 地形碰撞：玩家子弹/投射物撞墙即销毁（仅森林/岩壁，河流不阻挡）
     this.physics.add.collider(this.playerBullets, this.terrainLayer, (obj) => {
       const b = obj as PlayerBullet
       if (!b.active) return
       b.destroy()
       this.playerBullets.remove(b, true, true)
+    }, (obj, tile) => {
+      const t = tile as Phaser.Tilemaps.Tile
+      return FULL_COLLISION_TILE_IDS.includes(t.index)
     })
 
     this.physics.add.collider(this.playerProjectiles, this.terrainLayer, (obj) => {
@@ -223,6 +237,9 @@ export class MainScene extends Phaser.Scene {
       this.explodeAt(p.x, p.y, p.explosionRadius, p.damage)
       p.destroy()
       this.playerProjectiles.remove(p, true, true)
+    }, (obj, tile) => {
+      const t = tile as Phaser.Tilemaps.Tile
+      return FULL_COLLISION_TILE_IDS.includes(t.index)
     })
 
     // 命中：子弹 → 敌人
@@ -442,7 +459,7 @@ export class MainScene extends Phaser.Scene {
       if (list) list.push(e)
       else grid.set(k, [e])
 
-      // 给近战怪一个固定“绕圈方向”，减少扎堆贴脸
+      // 给近战怪一个固定"绕圈方向"，减少扎堆贴脸
       if (e.getData('swirlDir') === undefined) {
         e.setData('swirlDir', Math.random() < 0.5 ? -1 : 1)
       }
@@ -524,7 +541,7 @@ export class MainScene extends Phaser.Scene {
             vx = -nx * enemy.speed * 0.95
             vy = -ny * enemy.speed * 0.95
           } else {
-            // 中间距离：横移一点点，让战斗更“活”
+            // 中间距离：横移一点点，让战斗更"活"
             const tx = -ny
             const ty = nx
             vx = tx * enemy.speed * 0.35
@@ -548,7 +565,7 @@ export class MainScene extends Phaser.Scene {
         }
       }
 
-      // 限速：避免分散叠加导致“突然加速”
+      // 限速：避免分散叠加导致"突然加速"
       const maxSpeed = enemy.speed * 1.1
       const vLen = Math.sqrt(vx * vx + vy * vy)
       if (vLen > maxSpeed && vLen > 0) {
@@ -561,7 +578,7 @@ export class MainScene extends Phaser.Scene {
 
       enemy.updateEnemy(delta)
 
-      // 近战接触攻击：不再“自爆死亡”，改为冷却攻击
+      // 近战接触攻击：不再"自爆死亡"，改为冷却攻击
       const contactKey = 'contactCd'
       let contactCd = (enemy.getData(contactKey) as number) ?? 0
       contactCd = Math.max(0, contactCd - delta)
@@ -603,6 +620,12 @@ export class MainScene extends Phaser.Scene {
       return
     }
 
+    // 距离门槛：玩家必须靠近到 SHOOTER_FIRE_RANGE 范围内才允许发射
+    if (dist > SHOOTER_FIRE_RANGE) {
+      enemy.setData(key, 100) // 距离过远时轻缓 CD，避免高频检测
+      return
+    }
+
     if (dist <= 0) {
       enemy.setData(key, getShooterEnemyShootIntervalMs(this.level))
       return
@@ -617,13 +640,13 @@ export class MainScene extends Phaser.Scene {
     const speed = getShooterEnemyBulletSpeed(this.level)
     const damage = getShooterEnemyBulletDamage(this.level)
 
-    // 轻微散布，让弹幕没那么“锁死”
+    // 轻微散布，让弹幕没那么"锁死"
     const baseAngle = Math.atan2(dy, dx)
     const angle = baseAngle + Phaser.Math.FloatBetween(-0.12, 0.12)
     const dirX = Math.cos(angle)
     const dirY = Math.sin(angle)
 
-    const bullet = new EnemyBullet(this, enemy.x, enemy.y, 6, dirX, dirY, speed, damage)
+    const bullet = new EnemyBullet(this, enemy.x, enemy.y, 6, dirX, dirY, speed, damage, ENEMY_BULLET_MAX_RANGE)
     this.enemyBullets.add(bullet)
     bullet.initPhysics()
 
@@ -674,7 +697,8 @@ export class MainScene extends Phaser.Scene {
       const bullet = obj as EnemyBullet
       if (!bullet.active) return
 
-      if (bullet.isOutOfBounds(worldW, worldH)) {
+      // 综合判断：出界 / 射程超限 → 销毁
+      if (bullet.shouldDestroy(worldW, worldH)) {
         bullet.destroy()
         this.enemyBullets.remove(bullet, true, true)
         return
@@ -1033,6 +1057,9 @@ export class MainScene extends Phaser.Scene {
 
     this.boss = new Boss(this, spawnPos.x, spawnPos.y, bossHp)
 
+    // 让枪械系统也能索敌到 Boss
+    this.gunSystem.setBoss(this.boss)
+
     // 地形碰撞：Boss 也会被地形挡住（避免穿墙贴脸）
     this.physics.add.collider(this.boss, this.terrainLayer)
 
@@ -1045,6 +1072,8 @@ export class MainScene extends Phaser.Scene {
       this.boss.destroy()
       this.boss = null
     }
+    // 清除枪械系统的 Boss 引用
+    this.gunSystem.setBoss(null)
 
     this.score += 100
 
@@ -1134,7 +1163,7 @@ export class MainScene extends Phaser.Scene {
     })
   }
 
-  /** 生成“随机 3 选 1 + 稀有度 + 进化保底”的升级选项 */
+  /** 生成"随机 3 选 1 + 稀有度 + 进化保底"的升级选项 */
   private generateUpgradeOptions(): UpgradeOption[] {
     const nextLevel = this.playerLevel + 1
     const evolveInfo = this.getEvolveInfoForNextLevel(nextLevel)
@@ -1401,7 +1430,7 @@ export class MainScene extends Phaser.Scene {
     const count = this.enemies.getLength()
     this.enemies.clear(true, true)
 
-    // 顺手清理屏幕上的敌方投射物/残留区，避免“清屏后被阴”
+    // 顺手清理屏幕上的敌方投射物/残留区，避免"清屏后被阴"
     this.enemyBullets.clear(true, true)
     this.poopProjectiles.clear(true, true)
     this.aoeFields.clear(true, true)

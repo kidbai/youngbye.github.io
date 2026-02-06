@@ -12,15 +12,31 @@ export enum TileId {
   Forest = 3,
   Hill = 4,
   Rock = 5,
+  Bridge = 6, // 桥梁：可行走，跨越河流
 }
 
 export const TERRAIN_TILESET_KEY = 'terrain-tiles'
 
-/** 具备物理碰撞、不可跨越的地形 tile */
-export const COLLISION_TILE_IDS: number[] = [
+/**
+ * 仅阻挡移动（玩家/敌人/Boss），子弹可穿越
+ * 河流属于此类：不阻挡子弹，但阻挡行走
+ */
+export const MOVEMENT_BLOCKING_TILE_IDS: number[] = [
   TileId.Water,
+]
+
+/**
+ * 完全阻挡（移动 + 子弹）
+ */
+export const FULL_COLLISION_TILE_IDS: number[] = [
   TileId.Forest,
   TileId.Rock,
+]
+
+/** 具备物理碰撞、不可跨越的地形 tile（包含所有阻挡移动的） */
+export const COLLISION_TILE_IDS: number[] = [
+  ...MOVEMENT_BLOCKING_TILE_IDS,
+  ...FULL_COLLISION_TILE_IDS,
 ]
 
 export interface OverworldMapResult {
@@ -48,7 +64,7 @@ function clampInt(v: number, min: number, max: number): number {
 function ensureTerrainTileset(scene: Phaser.Scene): void {
   if (scene.textures.exists(TERRAIN_TILESET_KEY)) return
 
-  const tileCount = 6
+  const tileCount = 7 // 增加桥梁 tile
   const canvas = document.createElement('canvas')
   canvas.width = TILE_SIZE * tileCount
   canvas.height = TILE_SIZE
@@ -115,6 +131,26 @@ function ensureTerrainTileset(scene: Phaser.Scene): void {
   ctx.lineWidth = 2
   ctx.strokeRect(5 * TILE_SIZE + 1, 1, TILE_SIZE - 2, TILE_SIZE - 2)
 
+  // 6 - 桥梁（木质，横跨河流可行走）
+  const bridgeOx = 6 * TILE_SIZE
+  // 底色：深木色
+  ctx.fillStyle = '#8b5a2b'
+  ctx.fillRect(bridgeOx, 0, TILE_SIZE, TILE_SIZE)
+  // 木板纹理
+  ctx.fillStyle = '#a0522d'
+  for (let i = 0; i < 4; i++) {
+    ctx.fillRect(bridgeOx + 2, i * 8 + 1, TILE_SIZE - 4, 6)
+  }
+  // 木板缝隙
+  ctx.fillStyle = '#5c3317'
+  for (let i = 1; i < 4; i++) {
+    ctx.fillRect(bridgeOx, i * 8, TILE_SIZE, 1)
+  }
+  // 桥墩（左右边缘）
+  ctx.fillStyle = '#4a3728'
+  ctx.fillRect(bridgeOx, 0, 3, TILE_SIZE)
+  ctx.fillRect(bridgeOx + TILE_SIZE - 3, 0, 3, TILE_SIZE)
+
   scene.textures.addCanvas(TERRAIN_TILESET_KEY, canvas)
 }
 
@@ -133,6 +169,8 @@ export function createOverworldMap(scene: Phaser.Scene, seed: number = 20260206)
 
   // ===== 河流：一条横向蜿蜒的水带 =====
   const riverHalfWidth = 2
+  // 记录河流中心 Y 坐标，用于后续生成桥梁
+  const riverCenterY: number[] = []
   for (let x = 0; x < width; x++) {
     const t = x / width
     const yCenter = Math.floor(
@@ -140,6 +178,7 @@ export function createOverworldMap(scene: Phaser.Scene, seed: number = 20260206)
       Math.sin(t * Math.PI * 2) * (height * 0.06) +
       Math.sin(t * Math.PI * 5) * (height * 0.03)
     )
+    riverCenterY[x] = yCenter
 
     for (let dy = -riverHalfWidth; dy <= riverHalfWidth; dy++) {
       const y = yCenter + dy
@@ -152,6 +191,30 @@ export function createOverworldMap(scene: Phaser.Scene, seed: number = 20260206)
     const shoreY2 = yCenter + riverHalfWidth + 1
     if (shoreY1 >= 0) data[shoreY1][x] = TileId.Sand
     if (shoreY2 < height) data[shoreY2][x] = TileId.Sand
+  }
+
+  // ===== 桥梁：均匀分布在河流上，允许跨越 =====
+  const bridgeCount = 6 // 桥梁数量
+  const bridgeWidth = 4  // 每座桥宽度（tile）
+  const bridgeGap = Math.floor(width / (bridgeCount + 1))
+  for (let i = 1; i <= bridgeCount; i++) {
+    const bx = i * bridgeGap
+    const centerY = riverCenterY[bx] ?? Math.floor(height * 0.52)
+
+    // 铺设桥梁 tile（覆盖河流 + 两侧沙地）
+    for (let dx = -Math.floor(bridgeWidth / 2); dx < Math.ceil(bridgeWidth / 2); dx++) {
+      const x = bx + dx
+      if (x < 0 || x >= width) continue
+
+      for (let dy = -riverHalfWidth - 1; dy <= riverHalfWidth + 1; dy++) {
+        const y = centerY + dy
+        if (y < 0 || y >= height) continue
+        // 只覆盖水和沙地，不覆盖其他地形
+        if (data[y][x] === TileId.Water || data[y][x] === TileId.Sand) {
+          data[y][x] = TileId.Bridge
+        }
+      }
+    }
   }
 
   // ===== 丛林：若干个圆形/椭圆形 patch（可碰撞） =====

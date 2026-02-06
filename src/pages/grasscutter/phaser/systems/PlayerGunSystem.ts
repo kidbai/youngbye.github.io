@@ -5,6 +5,7 @@
 import Phaser from 'phaser'
 import { PLAYER_BULLET_CAP, GUN_BASE } from '../../balance'
 import { Enemy } from '../objects/Enemy'
+import { Boss } from '../objects/Boss'
 import { PlayerBullet } from '../objects/PlayerBullet'
 import { PlayerExplosiveProjectile } from '../objects/PlayerExplosiveProjectile'
 
@@ -24,9 +25,16 @@ export interface GunComputedStats {
   range: number
 }
 
+/** 射击目标：普通敌人或 Boss */
+interface ShootTarget {
+  x: number
+  y: number
+}
+
 export class PlayerGunSystem {
   private scene: Phaser.Scene
   private enemies: Phaser.GameObjects.Group
+  private boss: Boss | null = null
 
   private playerX: number = 0
   private playerY: number = 0
@@ -65,6 +73,11 @@ export class PlayerGunSystem {
     this.playerY = y
   }
 
+  /** 设置当前 Boss 引用（用于索敌） */
+  setBoss(boss: Boss | null): void {
+    this.boss = boss
+  }
+
   setGunId(gunId: GunId): void {
     this.gunId = gunId
   }
@@ -86,6 +99,7 @@ export class PlayerGunSystem {
     this.mul = { damageMul: 1, fireRateMul: 1, rangeMul: 1 }
     this.fireCooldownMs = 0
     this.grenadeCooldownMs = 0
+    this.boss = null
 
     this.bullets.clear(true, true)
     this.projectiles.clear(true, true)
@@ -94,7 +108,7 @@ export class PlayerGunSystem {
   update(deltaMs: number, worldWidth: number, worldHeight: number): void {
     this.updateLifetime(worldWidth, worldHeight)
 
-    const target = this.findNearestEnemy()
+    const target = this.findNearestTarget()
     if (!target) {
       this.fireCooldownMs = Math.max(0, this.fireCooldownMs - deltaMs)
       this.grenadeCooldownMs = Math.max(0, this.grenadeCooldownMs - deltaMs)
@@ -136,10 +150,14 @@ export class PlayerGunSystem {
     }
   }
 
-  private findNearestEnemy(): Enemy | null {
-    let best: Enemy | null = null
+  /**
+   * 查找最近的射击目标（优先普通敌人，也考虑 Boss）
+   */
+  private findNearestTarget(): ShootTarget | null {
+    let best: ShootTarget | null = null
     let bestDist2 = Number.POSITIVE_INFINITY
 
+    // 遍历普通敌人
     this.enemies.getChildren().forEach((obj) => {
       const enemy = obj as Enemy
       if (!enemy.active) return
@@ -150,9 +168,20 @@ export class PlayerGunSystem {
 
       if (d2 < bestDist2) {
         bestDist2 = d2
-        best = enemy
+        best = { x: enemy.x, y: enemy.y }
       }
     })
+
+    // 检查 Boss（如果存在且 active）
+    if (this.boss && this.boss.active) {
+      const dx = this.boss.x - this.playerX
+      const dy = this.boss.y - this.playerY
+      const d2 = dx * dx + dy * dy
+
+      if (d2 < bestDist2) {
+        best = { x: this.boss.x, y: this.boss.y }
+      }
+    }
 
     return best
   }
