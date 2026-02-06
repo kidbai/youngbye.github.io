@@ -5,16 +5,22 @@
  */
 
 import type { SaveData } from '../types'
+import {
+  INITIAL_WEAPON_DAMAGE,
+  INITIAL_WEAPON_RANGE,
+  INITIAL_WEAPON_ROTATION_SPEED,
+  INITIAL_WEAPON_COUNT,
+} from '../../balance'
 
 const STORAGE_KEY = 'grasscutter_save'
 
 const DEFAULT_SAVE: SaveData = {
   currentLevel: 1,
   highScore: 0,
-  weaponDamage: 10,
-  weaponRange: 80,
-  weaponRotationSpeed: 3,
-  weaponCount: 1,
+  weaponDamage: INITIAL_WEAPON_DAMAGE,
+  weaponRange: INITIAL_WEAPON_RANGE,
+  weaponRotationSpeed: INITIAL_WEAPON_ROTATION_SPEED,
+  weaponCount: INITIAL_WEAPON_COUNT,
   playerLevel: 1,
 }
 

@@ -39,10 +39,10 @@ export function createGame(opts: CreateGameOptions): Phaser.Game {
       autoCenter: Phaser.Scale.CENTER_BOTH,
     },
     render: {
-      // 高清渲染配置
-      pixelArt: false, // 非像素风格，使用平滑缩放
-      antialias: true, // 抗锯齿
-      roundPixels: false,
+      // 像素风渲染配置（全局）
+      pixelArt: true, // 纹理采样使用 nearest
+      antialias: false, // 关闭抗锯齿，避免像素边缘变糊
+      roundPixels: true, // 像素对齐，减少抖动
     },
     scene: [BootScene, PreloadScene, MainScene],
     // 世界边界在 MainScene 中配置

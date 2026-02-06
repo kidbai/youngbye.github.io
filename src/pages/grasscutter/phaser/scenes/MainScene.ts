@@ -5,7 +5,24 @@
 import Phaser from 'phaser'
 import { eventBus, Events, emitStateUpdate, emitNeedUpgrade, emitPlayerDead, emitVictory } from '../events'
 import type { MoveVector, GameSnapshot, UpgradeType } from '../types'
-import { WORLD_WIDTH, WORLD_HEIGHT, getLevelConfig, getBossHpByLevel, clamp, ENEMIES_PER_LEVEL } from '../../balance'
+import {
+  WORLD_WIDTH,
+  WORLD_HEIGHT,
+  getLevelConfig,
+  getBossHpByLevel,
+  clamp,
+  ENEMIES_PER_LEVEL,
+  PLAYER_MAX_HP,
+  KILLS_PER_UPGRADE,
+  MAX_WEAPONS,
+  INITIAL_WEAPON_DAMAGE,
+  INITIAL_WEAPON_RANGE,
+  INITIAL_WEAPON_ROTATION_SPEED,
+  INITIAL_WEAPON_COUNT,
+  UPGRADE_DAMAGE_INCREASE,
+  UPGRADE_RANGE_INCREASE,
+  UPGRADE_SPEED_INCREASE,
+} from '../../balance'
 import { Player } from '../objects/Player'
 import { Enemy } from '../objects/Enemy'
 import { Boss } from '../objects/Boss'
@@ -13,6 +30,7 @@ import { BossBullet } from '../objects/BossBullet'
 import { SpawnSystem } from '../systems/SpawnSystem'
 import { WeaponSystem } from '../systems/WeaponSystem'
 import { SaveSystem } from '../systems/SaveSystem'
+import { createOverworldMap, isBlockedAtWorldXY } from '../maps/OverworldMap'
 
 /** 玩家被击中时的重庆话骚话 */
 const PLAYER_HIT_SPEECHES = [
@@ -29,9 +47,6 @@ const PLAYER_HIT_SPEECHES = [
 ]
 
 /** 配置常量 */
-const PLAYER_MAX_HP = 100
-const KILLS_PER_UPGRADE = 5
-const MAX_WEAPONS = 6
 const BOSS_TOUCH_DAMAGE = 25
 const BOSS_TOUCH_COOLDOWN = 650
 const BOSS_KNOCKBACK_DISTANCE = 40
@@ -41,14 +56,17 @@ export class MainScene extends Phaser.Scene {
   // 玩家
   private player!: Player
 
+  // 地形碰撞层（Tilemap）
+  private terrainLayer!: Phaser.Tilemaps.TilemapLayer
+
   // 敌人组
   private enemies!: Phaser.GameObjects.Group
 
   // Boss
   private boss: Boss | null = null
 
-  // Boss 子弹组
-  private bossBullets!: Phaser.GameObjects.Group
+  // Boss 子弹组（需要与地形碰撞，因此用 Arcade 物理组）
+  private bossBullets!: Phaser.Physics.Arcade.Group
 
   // 系统
   private spawnSystem!: SpawnSystem
@@ -77,10 +95,10 @@ export class MainScene extends Phaser.Scene {
   private bossSpawned = false
 
   // 武器属性
-  private weaponDamage = 10
-  private weaponRange = 80
-  private weaponRotationSpeed = 3
-  private weaponCount = 1
+  private weaponDamage = INITIAL_WEAPON_DAMAGE
+  private weaponRange = INITIAL_WEAPON_RANGE
+  private weaponRotationSpeed = INITIAL_WEAPON_ROTATION_SPEED
+  private weaponCount = INITIAL_WEAPON_COUNT
 
   // 伤害冷却帧计数（避免每帧重复伤害）
   private weaponHitCooldown: Map<number, number> = new Map()
@@ -96,12 +114,25 @@ export class MainScene extends Phaser.Scene {
     // 设置世界边界
     this.physics.world.setBounds(0, 0, worldW, worldH)
 
-    // 绘制背景
-    this.drawBackground(worldW, worldH)
+    // 创建像素风 Tilemap 地图（含碰撞）
+    const overworld = createOverworldMap(this)
+    this.terrainLayer = overworld.layer
+    this.terrainLayer.setDepth(-10)
 
     // 创建组（使用物理组以支持碰撞）
     this.enemies = this.physics.add.group()
-    this.bossBullets = this.add.group()
+    this.bossBullets = this.physics.add.group()
+
+    // 地形碰撞：敌人会被地形挡住
+    this.physics.add.collider(this.enemies, this.terrainLayer)
+
+    // 地形碰撞：Boss 子弹撞墙即销毁
+    this.physics.add.collider(this.bossBullets, this.terrainLayer, (obj) => {
+      const bullet = obj as BossBullet
+      if (!bullet.active) return
+      bullet.destroy()
+      this.bossBullets.remove(bullet, true, true)
+    })
 
     // 设置敌人之间的碰撞（防止重叠）
     this.physics.add.collider(this.enemies, this.enemies)
@@ -115,13 +146,17 @@ export class MainScene extends Phaser.Scene {
     this.weaponCount = save.weaponCount
     this.playerLevel = save.playerLevel
 
-    // 创建玩家
+    // 创建玩家（确保不出生在阻挡地形上）
+    const startPos = this.findFreePosition(worldW / 2, worldH / 2)
     this.player = new Player(this, {
-      x: worldW / 2,
-      y: worldH / 2,
+      x: startPos.x,
+      y: startPos.y,
       hp: PLAYER_MAX_HP,
       maxHp: PLAYER_MAX_HP,
     })
+
+    // 地形碰撞：玩家会被地形挡住
+    this.physics.add.collider(this.player, this.terrainLayer)
 
     // 创建武器系统
     this.weaponSystem = new WeaponSystem(this, {
@@ -133,6 +168,9 @@ export class MainScene extends Phaser.Scene {
 
     // 创建刷怪系统
     this.spawnSystem = new SpawnSystem(this, this.enemies)
+
+    // 供刷怪避障：注入地形阻挡判定
+    this.spawnSystem.setIsBlocked((x: number, y: number) => isBlockedAtWorldXY(this.terrainLayer, x, y))
 
     // 相机跟随
     this.cameras.main.setBounds(0, 0, worldW, worldH)
@@ -192,24 +230,35 @@ export class MainScene extends Phaser.Scene {
     }
   }
 
-  /** 绘制世界背景 */
-  private drawBackground(w: number, h: number): void {
-    const graphics = this.add.graphics()
-    graphics.fillGradientStyle(0x2d5a27, 0x2d5a27, 0x1a472a, 0x1a472a, 1)
-    graphics.fillRect(0, 0, w, h)
+  /**
+   * 旧版：绘制世界背景（绿色网格）。
+   * 现在已改为 Tilemap 地图，保留此函数便于回退调试。
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private drawBackground(_w: number, _h: number): void {
+    // no-op
+  }
 
-    // 网格线
-    graphics.lineStyle(1, 0x3d6a37, 0.3)
-    const gridSize = 100
-    for (let x = 0; x <= w; x += gridSize) {
-      graphics.moveTo(x, 0)
-      graphics.lineTo(x, h)
+  /**
+   * 找到一个非阻挡地形的位置（用于玩家/Boss 初始出生点，避免卡在河流/丛林/岩壁里）。
+   */
+  private findFreePosition(x: number, y: number, maxRadius: number = 640): { x: number; y: number } {
+    if (!isBlockedAtWorldXY(this.terrainLayer, x, y)) return { x, y }
+
+    const step = 32
+    for (let r = step; r <= maxRadius; r += step) {
+      const samples = 16
+      for (let i = 0; i < samples; i++) {
+        const angle = (Math.PI * 2 * i) / samples
+        const nx = clamp(x + Math.cos(angle) * r, 50, WORLD_WIDTH - 50)
+        const ny = clamp(y + Math.sin(angle) * r, 50, WORLD_HEIGHT - 50)
+        if (!isBlockedAtWorldXY(this.terrainLayer, nx, ny)) {
+          return { x: nx, y: ny }
+        }
+      }
     }
-    for (let y = 0; y <= h; y += gridSize) {
-      graphics.moveTo(0, y)
-      graphics.lineTo(w, y)
-    }
-    graphics.strokePath()
+
+    return { x, y }
   }
 
   /** 开始当前关 */
@@ -277,9 +326,8 @@ export class MainScene extends Phaser.Scene {
         // 敌人碰到玩家时死亡，同时玩家受伤
         this.player.takeDamage(5)
         this.player.showSpeech(PLAYER_HIT_SPEECHES[Math.floor(Math.random() * PLAYER_HIT_SPEECHES.length)])
-        enemy.destroy()
-        this.enemies.remove(enemy)
-        this.emitState() // 更新 UI 血条
+        // 敌人接触玩家也算击杀（否则 kills 无法达到 100）
+        this.onEnemyKilled(enemy)
       }
     })
   }
@@ -345,6 +393,7 @@ export class MainScene extends Phaser.Scene {
         this.boss.bulletDamage
       )
       this.bossBullets.add(bullet)
+
     }
   }
 
@@ -360,7 +409,7 @@ export class MainScene extends Phaser.Scene {
       // 检测出界
       if (bullet.isOutOfBounds(worldW, worldH)) {
         bullet.destroy()
-        this.bossBullets.remove(bullet)
+        this.bossBullets.remove(bullet, true, true)
         return
       }
 
@@ -373,7 +422,7 @@ export class MainScene extends Phaser.Scene {
         this.player.takeDamage(bullet.damage)
         this.player.showSpeech(PLAYER_HIT_SPEECHES[Math.floor(Math.random() * PLAYER_HIT_SPEECHES.length)])
         bullet.destroy()
-        this.bossBullets.remove(bullet)
+        this.bossBullets.remove(bullet, true, true)
         this.emitState() // 更新 UI 血条
       }
     })
@@ -484,12 +533,16 @@ export class MainScene extends Phaser.Scene {
     // 清理剩余敌人
     this.enemies.clear(true, true)
 
-    // 在玩家上方生成 Boss
+    // 在玩家上方生成 Boss（确保不出生在阻挡地形上）
     const bossHp = getBossHpByLevel(this.level)
-    const spawnX = clamp(this.player.x, 100, WORLD_WIDTH - 100)
-    const spawnY = clamp(this.player.y - 300, 100, WORLD_HEIGHT - 100)
+    const desiredX = clamp(this.player.x, 100, WORLD_WIDTH - 100)
+    const desiredY = clamp(this.player.y - 300, 100, WORLD_HEIGHT - 100)
+    const spawnPos = this.findFreePosition(desiredX, desiredY)
 
-    this.boss = new Boss(this, spawnX, spawnY, bossHp)
+    this.boss = new Boss(this, spawnPos.x, spawnPos.y, bossHp)
+
+    // 地形碰撞：Boss 也会被地形挡住（避免穿墙贴脸）
+    this.physics.add.collider(this.boss, this.terrainLayer)
 
     this.emitState()
   }
@@ -583,13 +636,13 @@ export class MainScene extends Phaser.Scene {
   private applyUpgrade(type: UpgradeType): void {
     switch (type) {
       case 'damage':
-        this.weaponDamage += 3
+        this.weaponDamage += UPGRADE_DAMAGE_INCREASE
         break
       case 'range':
-        this.weaponRange += 10
+        this.weaponRange += UPGRADE_RANGE_INCREASE
         break
       case 'speed':
-        this.weaponRotationSpeed += 0.5
+        this.weaponRotationSpeed += UPGRADE_SPEED_INCREASE
         break
       case 'weapon':
         if (this.weaponCount < MAX_WEAPONS) {
@@ -629,16 +682,17 @@ export class MainScene extends Phaser.Scene {
     this.totalKills = 0
     this.playerLevel = 1
     this.pendingUpgrades = 0
-    this.weaponDamage = 10
-    this.weaponRange = 80
-    this.weaponRotationSpeed = 3
-    this.weaponCount = 1
+    this.weaponDamage = INITIAL_WEAPON_DAMAGE
+    this.weaponRange = INITIAL_WEAPON_RANGE
+    this.weaponRotationSpeed = INITIAL_WEAPON_ROTATION_SPEED
+    this.weaponCount = INITIAL_WEAPON_COUNT
     this.bossSpawned = false
 
     // 重置玩家
     this.player.hp = PLAYER_MAX_HP
-    this.player.x = WORLD_WIDTH / 2
-    this.player.y = WORLD_HEIGHT / 2
+    const startPos = this.findFreePosition(WORLD_WIDTH / 2, WORLD_HEIGHT / 2)
+    this.player.x = startPos.x
+    this.player.y = startPos.y
     this.player.setHit(false)
 
     // 重置武器

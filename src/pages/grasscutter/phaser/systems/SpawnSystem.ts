@@ -16,9 +16,17 @@ export class SpawnSystem {
   private level: number = 1
   private onKillTargetReached: (() => void) | null = null
 
+  /** 地形阻挡判定（可选：由 MainScene 注入，用于刷怪避障） */
+  private isBlocked: ((x: number, y: number) => boolean) | null = null
+
   constructor(scene: Phaser.Scene, enemies: Phaser.GameObjects.Group) {
     this.scene = scene
     this.enemies = enemies
+  }
+
+  /** 设置地形阻挡判定（用于刷怪避障） */
+  setIsBlocked(fn: ((x: number, y: number) => boolean) | null): void {
+    this.isBlocked = fn
   }
 
   /** 开始刷怪 */
@@ -52,50 +60,69 @@ export class SpawnSystem {
 
   /** 生成一只敌人 */
   private spawnEnemy(): void {
+    // 已刷满则停止
     if (this.spawnedCount >= ENEMIES_PER_LEVEL) {
       this.stopSpawning()
       return
     }
 
+    // 先增加计数，确保能刷满 ENEMIES_PER_LEVEL 只
+    this.spawnedCount++
+
     const config = getLevelConfig(this.level)
     const camera = this.scene.cameras.main
 
-    // 在摄像机视口边缘生成
-    const edge = Phaser.Math.Between(0, 3)
-    let x: number, y: number
+    const pickEdgeSpawn = (): { x: number; y: number } => {
+      // 在摄像机视口边缘生成
+      const edge = Phaser.Math.Between(0, 3)
 
-    const margin = 100
-    const camX = camera.scrollX
-    const camY = camera.scrollY
-    const camW = camera.width
-    const camH = camera.height
+      const margin = 100
+      const camX = camera.scrollX
+      const camY = camera.scrollY
+      const camW = camera.width
+      const camH = camera.height
 
-    switch (edge) {
-      case 0: // 上边
-        x = Phaser.Math.Between(camX - margin, camX + camW + margin)
-        y = camY - margin
-        break
-      case 1: // 下边
-        x = Phaser.Math.Between(camX - margin, camX + camW + margin)
-        y = camY + camH + margin
-        break
-      case 2: // 左边
-        x = camX - margin
-        y = Phaser.Math.Between(camY - margin, camY + camH + margin)
-        break
-      default: // 右边
-        x = camX + camW + margin
-        y = Phaser.Math.Between(camY - margin, camY + camH + margin)
-        break
+      let x: number, y: number
+
+      switch (edge) {
+        case 0: // 上边
+          x = Phaser.Math.Between(camX - margin, camX + camW + margin)
+          y = camY - margin
+          break
+        case 1: // 下边
+          x = Phaser.Math.Between(camX - margin, camX + camW + margin)
+          y = camY + camH + margin
+          break
+        case 2: // 左边
+          x = camX - margin
+          y = Phaser.Math.Between(camY - margin, camY + camH + margin)
+          break
+        default: // 右边
+          x = camX + camW + margin
+          y = Phaser.Math.Between(camY - margin, camY + camH + margin)
+          break
+      }
+
+      // 限制在世界范围内
+      x = Phaser.Math.Clamp(x, 50, WORLD_WIDTH - 50)
+      y = Phaser.Math.Clamp(y, 50, WORLD_HEIGHT - 50)
+
+      return { x, y }
     }
 
-    // 限制在世界范围内
-    x = Phaser.Math.Clamp(x, 50, WORLD_WIDTH - 50)
-    y = Phaser.Math.Clamp(y, 50, WORLD_HEIGHT - 50)
+    // 刷怪避障：最多重试 N 次，避免出生即卡在不可走地形里
+    const MAX_ATTEMPTS = 12
+    let spawn = pickEdgeSpawn()
+    if (this.isBlocked) {
+      for (let i = 0; i < MAX_ATTEMPTS; i++) {
+        if (!this.isBlocked(spawn.x, spawn.y)) break
+        spawn = pickEdgeSpawn()
+      }
+    }
 
     const imageKey = ENEMY_IMAGES[Phaser.Math.Between(0, ENEMY_IMAGES.length - 1)]
 
-    const enemy = new Enemy(this.scene, x, y, {
+    const enemy = new Enemy(this.scene, spawn.x, spawn.y, {
       hp: config.enemyHp,
       maxHp: config.enemyHp,
       speed: config.enemySpeed * 60, // 转换为像素/秒
@@ -103,7 +130,6 @@ export class SpawnSystem {
     })
 
     this.enemies.add(enemy)
-    this.spawnedCount++
   }
 
   /** 获取已生成数量 */

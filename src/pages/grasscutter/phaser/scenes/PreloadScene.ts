@@ -55,9 +55,9 @@ export class PreloadScene extends Phaser.Scene {
   private generateCircleTextures(): void {
     const keys = ['minion', 'minion2', 'monster', 'yuanxiao', 'yuanxiao-shoted', 'boss', 'boss-shot']
     
-    // 目标纹理尺寸（足够大以保证高清显示，但不会太大导致性能问题）
-    // 考虑到游戏中最大显示尺寸约 100px，使用 256px 可以保证在高 DPI 屏幕上也清晰
-    const TARGET_SIZE = 256
+    // 目标纹理尺寸
+    // 像素风：刻意降低分辨率并关闭平滑缩放，让头像也呈现像素采样效果
+    const TARGET_SIZE = 128
 
     keys.forEach((key) => {
       const circleKey = `${key}-circle`
@@ -77,9 +77,8 @@ export class PreloadScene extends Phaser.Scene {
       canvas.height = TARGET_SIZE
       const ctx = canvas.getContext('2d')!
 
-      // 启用高质量图像平滑
-      ctx.imageSmoothingEnabled = true
-      ctx.imageSmoothingQuality = 'high'
+      // 像素风：关闭图像平滑（nearest）
+      ctx.imageSmoothingEnabled = false
 
       // 绘制圆形裁剪路径
       const radius = TARGET_SIZE / 2

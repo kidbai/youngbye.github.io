@@ -21,17 +21,24 @@ import {
   emitKillAll,
 } from './grasscutter/phaser/events'
 import type { GameSnapshot, UpgradeType, MoveVector } from './grasscutter/phaser/types'
-import { ENEMIES_PER_LEVEL, getLevelConfig } from './grasscutter/balance'
+import {
+  ENEMIES_PER_LEVEL,
+  getLevelConfig,
+  PLAYER_MAX_HP,
+  KILLS_PER_UPGRADE,
+  MAX_WEAPONS,
+  INITIAL_WEAPON_DAMAGE,
+  INITIAL_WEAPON_RANGE,
+  INITIAL_WEAPON_ROTATION_SPEED,
+  UPGRADE_DAMAGE_INCREASE,
+  UPGRADE_RANGE_INCREASE,
+  UPGRADE_SPEED_INCREASE,
+} from './grasscutter/balance'
 
 // ==================== 常量 ====================
 
 const STORAGE_KEY = 'grasscutter_save'
-const KILLS_PER_UPGRADE = 10
-const UPGRADE_DAMAGE_INCREASE = 10
-const UPGRADE_RANGE_INCREASE = 20
-const UPGRADE_SPEED_INCREASE = 0.5
-const MAX_WEAPONS = 8
-const INITIAL_MAX_HP = 1000
+const INITIAL_MAX_HP = PLAYER_MAX_HP
 
 // ==================== 组件 ====================
 
@@ -47,14 +54,14 @@ function GrassCutter() {
   const [kills, setKills] = useState(0)
   const [totalKills, setTotalKills] = useState(0)
   const [level, setLevel] = useState(1)
-  const [killsNeeded, setKillsNeeded] = useState(100)
+  const [killsNeeded, setKillsNeeded] = useState(ENEMIES_PER_LEVEL)
   const [bossHp, setBossHp] = useState(0)
   const [bossMaxHp, setBossMaxHp] = useState(0)
   const [gameState, setGameState] = useState<string>('playing')
   const [playerLevel, setPlayerLevel] = useState(1)
-  const [weaponDamage, setWeaponDamage] = useState(50)
-  const [weaponRange, setWeaponRange] = useState(120)
-  const [weaponRotationSpeed, setWeaponRotationSpeed] = useState(2)
+  const [weaponDamage, setWeaponDamage] = useState(INITIAL_WEAPON_DAMAGE)
+  const [weaponRange, setWeaponRange] = useState(INITIAL_WEAPON_RANGE)
+  const [weaponRotationSpeed, setWeaponRotationSpeed] = useState(INITIAL_WEAPON_ROTATION_SPEED)
   const [weaponCount, setWeaponCount] = useState(1)
   const [highScore, setHighScore] = useState(0)
 
@@ -314,11 +321,6 @@ function GrassCutter() {
     emitApplyUpgrade(type)
   }, [])
 
-  const handleSkipUpgrade = useCallback(() => {
-    setGameState('playing')
-    emitResume()
-  }, [])
-
   const handleRetry = useCallback(() => {
     emitRestart()
     setGameState('playing')
@@ -535,12 +537,6 @@ function GrassCutter() {
                 </span>
               </button>
             </div>
-            <button 
-              className={styles.skipBtn}
-              onClick={handleSkipUpgrade}
-            >
-              放弃本次升级
-            </button>
           </div>
         </div>
       )}
