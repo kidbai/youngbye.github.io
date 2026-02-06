@@ -45,7 +45,7 @@ export class PoopProjectile extends Phaser.GameObjects.Image {
   private warningTween: Phaser.Tweens.Tween | null = null
 
   constructor(scene: Phaser.Scene, cfg: PoopProjectileConfig) {
-    super(scene, cfg.x, cfg.y, 'px-poop')
+    super(scene, cfg.x, cfg.y, 'px-poop-emoji')
 
     this.targetX = cfg.targetX
     this.targetY = cfg.targetY
@@ -71,7 +71,7 @@ export class PoopProjectile extends Phaser.GameObjects.Image {
       this.vy = 0
     }
 
-    this.setTint(0x9a3412)
+    // emoji 风格贴图已自带配色；避免对整张贴图 tint（会把眼白也染色）
     this.setRotation(Math.atan2(this.vy, this.vx) + Phaser.Math.FloatBetween(-0.2, 0.2))
 
     const d = this.projectileRadius * 2 + 4

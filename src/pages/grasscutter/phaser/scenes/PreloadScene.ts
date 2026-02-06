@@ -246,7 +246,7 @@ export class PreloadScene extends Phaser.Scene {
       ctx.fillRect(12, 4, 1, 1)
     })
 
-    // 丢大便投掷物（不规则 blob）
+    // 丢大便投掷物（不规则 blob；灰阶底图，运行时可 tint）
     make('px-poop', 16, (ctx) => {
       const p = [
         '................',
@@ -284,6 +284,74 @@ export class PreloadScene extends Phaser.Scene {
           ctx.fillRect(x, y, 1, 1)
         }
       }
+    })
+
+    // 丢大便投掷物（emoji 风格：自带配色 + 表情，不再依赖 tint）
+    make('px-poop-emoji', 16, (ctx) => {
+      const C_POOP = '#8b5a2b'
+      const C_POOP_HL = '#a9713e'
+      const C_POOP_SH = '#6b3f1f'
+      const C_EYE = '#f9fafb'
+      const C_MOUTH = '#f9fafb'
+
+      // 形状：尽量贴近 💩 的“螺旋堆叠”轮廓（像素化）
+      const p = [
+        '................',
+        '......oooo......',
+        '....oo####oo....',
+        '...o########o...',
+        '..o##########o..',
+        '..o##########o..',
+        '...o########o...',
+        '....o######o....',
+        '.....o####o.....',
+        '......oooo......',
+        '................',
+        '................',
+        '................',
+        '................',
+        '................',
+        '................',
+      ]
+
+      for (let y = 0; y < p.length; y++) {
+        for (let x = 0; x < p[y].length; x++) {
+          const ch = p[y][x]
+          if (ch === '.') continue
+
+          if (ch === 'o') ctx.fillStyle = C_OUTLINE
+          if (ch === '#') ctx.fillStyle = C_POOP
+
+          // 体积感：左上高光、右下阴影
+          if (ch === '#') {
+            if (x <= 7 && y <= 5) ctx.fillStyle = C_POOP_HL
+            if (x >= 9 && y >= 7) ctx.fillStyle = C_POOP_SH
+          }
+
+          ctx.fillRect(x, y, 1, 1)
+        }
+      }
+
+      // 表情：眼睛 + 嘴巴（避免过细，保证 16px 下可读）
+      // 眼白
+      ctx.fillStyle = C_EYE
+      ctx.fillRect(6, 5, 2, 2)
+      ctx.fillRect(9, 5, 2, 2)
+
+      // 瞳孔
+      ctx.fillStyle = C_OUTLINE
+      ctx.fillRect(7, 6, 1, 1)
+      ctx.fillRect(10, 6, 1, 1)
+
+      // 嘴巴（微笑）
+      ctx.fillStyle = C_MOUTH
+      ctx.fillRect(7, 8, 4, 1)
+      ctx.fillRect(6, 7, 1, 1)
+      ctx.fillRect(11, 7, 1, 1)
+
+      // 嘴巴描边（下沿一点点）
+      ctx.fillStyle = C_OUTLINE
+      ctx.fillRect(7, 9, 4, 1)
     })
   }
 }
