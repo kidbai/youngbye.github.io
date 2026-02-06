@@ -508,6 +508,12 @@ export class MainScene extends Phaser.Scene {
       return
     }
 
+    // 上限保护：避免敌方子弹无限堆积导致卡死
+    if (this.enemyBullets.getLength() >= 280) {
+      enemy.setData(key, getShooterEnemyShootIntervalMs(this.level))
+      return
+    }
+
     const speed = getShooterEnemyBulletSpeed(this.level)
     const damage = getShooterEnemyBulletDamage(this.level)
 
@@ -531,6 +537,12 @@ export class MainScene extends Phaser.Scene {
 
     if (cd > 0) {
       enemy.setData(key, cd)
+      return
+    }
+
+    // 上限保护：避免投掷物堆积
+    if (this.poopProjectiles.getLength() >= 60) {
+      enemy.setData(key, getThrowerEnemyThrowIntervalMs(this.level))
       return
     }
 
@@ -619,6 +631,9 @@ export class MainScene extends Phaser.Scene {
     }
 
     // 残留区（低频 tick）
+    // 上限保护：避免残留区过多导致每帧遍历卡顿
+    if (this.aoeFields.getLength() >= 30) return
+
     const field = new AoeField(this, {
       x: poop.x,
       y: poop.y,
@@ -689,6 +704,9 @@ export class MainScene extends Phaser.Scene {
   private bossShoot(): void {
     if (!this.boss) return
 
+    // 上限保护：避免 Boss 弹幕堆积
+    if (this.bossBullets.getLength() >= 160) return
+
     this.boss.startShoot()
 
     // 计算朝向玩家的方向
@@ -708,6 +726,7 @@ export class MainScene extends Phaser.Scene {
         this.boss.bulletDamage
       )
       this.bossBullets.add(bullet)
+      bullet.initPhysics()
 
     }
   }
@@ -865,8 +884,13 @@ export class MainScene extends Phaser.Scene {
   private showUpgradeMenu(): void {
     if (this.pendingUpgrades > 0 && this.gameState === 'playing') {
       this.gameState = 'upgrading'
+
+      // 升级界面期间：暂停刷怪计时器，避免 time.addEvent 继续刷怪导致实体堆积
+      this.spawnSystem.pause()
+
       // 暂停物理引擎，停止所有物体移动
       this.physics.pause()
+
       emitNeedUpgrade(this.generateUpgradeOptions())
       this.emitState()
     }
@@ -977,12 +1001,14 @@ export class MainScene extends Phaser.Scene {
     eventBus.on(Events.PAUSE, () => {
       this.scene.pause()
       this.physics.pause()
+      this.spawnSystem.pause()
     })
 
     eventBus.on(Events.RESUME, () => {
       this.scene.resume()
       // 恢复物理引擎
       this.physics.resume()
+      this.spawnSystem.resume()
       if (this.gameState === 'upgrading' && this.pendingUpgrades <= 0) {
         this.gameState = 'playing'
       }
@@ -1190,8 +1216,10 @@ export class MainScene extends Phaser.Scene {
       emitNeedUpgrade(this.generateUpgradeOptions())
       this.emitState()
     } else {
-      // 所有升级完成，恢复物理引擎
+      // 所有升级完成，恢复刷怪与物理引擎
+      this.spawnSystem.resume()
       this.physics.resume()
+
       this.gameState = 'playing'
       this.emitState()
       this.checkBossSpawn()

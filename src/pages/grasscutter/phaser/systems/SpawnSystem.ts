@@ -49,6 +49,7 @@ export class SpawnSystem {
       callbackScope: this,
       loop: true,
     })
+    this.spawnTimer.paused = false
 
     // 立即刷一只
     this.spawnEnemy()
@@ -59,6 +60,20 @@ export class SpawnSystem {
     if (this.spawnTimer) {
       this.spawnTimer.destroy()
       this.spawnTimer = null
+    }
+  }
+
+  /** 暂停刷怪（用于升级界面/暂停菜单，避免时间事件继续刷怪导致堆积） */
+  pause(): void {
+    if (this.spawnTimer) {
+      this.spawnTimer.paused = true
+    }
+  }
+
+  /** 恢复刷怪 */
+  resume(): void {
+    if (this.spawnTimer) {
+      this.spawnTimer.paused = false
     }
   }
 
