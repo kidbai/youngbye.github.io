@@ -22,20 +22,24 @@ export class ExplosionFx extends Phaser.GameObjects.Arc {
     // 外圈描边
     this.setStrokeStyle(3, cfg.color ?? 0xf97316, 0.55)
 
+    // 关键：对象被提前清理（clear/restart/切场景）时，Tween 可能仍在跑。
+    // 主动 kill 掉关联 Tween，避免 Phaser 在 null target 上写属性导致报错/卡死。
+    this.once(Phaser.GameObjects.Events.DESTROY, () => {
+      scene.tweens.killTweensOf(this)
+    })
+
     const duration = cfg.durationMs ?? 180
+
+    // 用 scale 代替 tween radius（tween radius 在对象被销毁后更容易触发内部 null 目标错误）
     scene.tweens.add({
       targets: this,
       alpha: 0,
+      scale: 1.15,
       duration,
       ease: 'Quad.easeOut',
-      onComplete: () => this.destroy(),
-    })
-
-    scene.tweens.add({
-      targets: this,
-      radius: cfg.radius * 1.15,
-      duration,
-      ease: 'Quad.easeOut',
+      onComplete: () => {
+        if (this.active) this.destroy()
+      },
     })
   }
 }
