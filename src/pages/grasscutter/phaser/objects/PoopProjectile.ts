@@ -24,9 +24,12 @@ export class PoopProjectile extends Phaser.GameObjects.Ellipse {
   public fieldDurationMs: number
   public fieldTickMs: number
   public fieldTickDamage: number
+  public projectileRadius: number
 
   private targetX: number
   private targetY: number
+  private vx: number
+  private vy: number
 
   constructor(scene: Phaser.Scene, cfg: PoopProjectileConfig) {
     super(scene, cfg.x, cfg.y, cfg.radius * 2, cfg.radius * 2, 0x9a3412)
@@ -39,20 +42,30 @@ export class PoopProjectile extends Phaser.GameObjects.Ellipse {
     this.fieldDurationMs = cfg.fieldDurationMs
     this.fieldTickMs = cfg.fieldTickMs
     this.fieldTickDamage = cfg.fieldTickDamage
-
-    scene.add.existing(this)
-    scene.physics.world.enable(this)
+    this.projectileRadius = cfg.radius
 
     const dx = cfg.targetX - cfg.x
     const dy = cfg.targetY - cfg.y
     const dist = Math.sqrt(dx * dx + dy * dy)
 
-    const body = this.body as Phaser.Physics.Arcade.Body
-    body.setCircle(cfg.radius)
-
     if (dist > 0) {
-      body.setVelocity((dx / dist) * cfg.speed, (dy / dist) * cfg.speed)
+      this.vx = (dx / dist) * cfg.speed
+      this.vy = (dy / dist) * cfg.speed
+    } else {
+      this.vx = 0
+      this.vy = 0
     }
+
+    scene.add.existing(this)
+  }
+
+  /** 在被添加到 Group 之后调用，初始化物理 body */
+  initPhysics(): void {
+    const body = this.body as Phaser.Physics.Arcade.Body
+    if (!body) return
+
+    body.setCircle(this.projectileRadius)
+    body.setVelocity(this.vx, this.vy)
   }
 
   /** 是否抵达落点（或足够接近落点） */

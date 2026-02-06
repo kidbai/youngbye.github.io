@@ -184,6 +184,7 @@ export class PlayerGunSystem {
     })
 
     this.bullets.add(bullet)
+    bullet.initPhysics()
   }
 
   private fireGrenadeAt(targetX: number, targetY: number): void {
@@ -212,6 +213,7 @@ export class PlayerGunSystem {
     })
 
     this.projectiles.add(projectile)
+    projectile.initPhysics()
   }
 
   private updateLifetime(worldWidth: number, worldHeight: number): void {

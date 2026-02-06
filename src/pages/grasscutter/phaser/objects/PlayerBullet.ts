@@ -17,24 +17,34 @@ export interface PlayerBulletConfig {
 
 export class PlayerBullet extends Phaser.GameObjects.Ellipse {
   public damage: number
+  public bulletRadius: number
   private startX: number
   private startY: number
   private maxRange: number
+  private vx: number
+  private vy: number
 
   constructor(scene: Phaser.Scene, cfg: PlayerBulletConfig) {
     super(scene, cfg.x, cfg.y, cfg.radius * 2, cfg.radius * 2, 0xa7f3d0)
 
     this.damage = cfg.damage
+    this.bulletRadius = cfg.radius
     this.startX = cfg.x
     this.startY = cfg.y
     this.maxRange = cfg.range
+    this.vx = cfg.dirX * cfg.speed
+    this.vy = cfg.dirY * cfg.speed
 
     scene.add.existing(this)
-    scene.physics.world.enable(this)
+  }
 
+  /** 在被添加到 Group 之后调用，初始化物理 body */
+  initPhysics(): void {
     const body = this.body as Phaser.Physics.Arcade.Body
-    body.setCircle(cfg.radius)
-    body.setVelocity(cfg.dirX * cfg.speed, cfg.dirY * cfg.speed)
+    if (!body) return
+
+    body.setCircle(this.bulletRadius)
+    body.setVelocity(this.vx, this.vy)
   }
 
   shouldDestroy(worldWidth: number, worldHeight: number): boolean {

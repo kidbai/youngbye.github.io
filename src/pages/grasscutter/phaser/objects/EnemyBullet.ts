@@ -7,6 +7,9 @@ import Phaser from 'phaser'
 export class EnemyBullet extends Phaser.GameObjects.Ellipse {
   public damage: number
   public speed: number
+  public bulletRadius: number
+  private vx: number
+  private vy: number
 
   constructor(
     scene: Phaser.Scene,
@@ -22,13 +25,20 @@ export class EnemyBullet extends Phaser.GameObjects.Ellipse {
 
     this.damage = damage
     this.speed = speed
+    this.bulletRadius = radius
+    this.vx = dirX * speed
+    this.vy = dirY * speed
 
     scene.add.existing(this)
-    scene.physics.world.enable(this)
+  }
 
+  /** 在被添加到 Group 之后调用，初始化物理 body */
+  initPhysics(): void {
     const body = this.body as Phaser.Physics.Arcade.Body
-    body.setCircle(radius)
-    body.setVelocity(dirX * speed, dirY * speed)
+    if (!body) return
+
+    body.setCircle(this.bulletRadius)
+    body.setVelocity(this.vx, this.vy)
   }
 
   isOutOfBounds(worldWidth: number, worldHeight: number): boolean {

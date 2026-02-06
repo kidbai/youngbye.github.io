@@ -519,6 +519,7 @@ export class MainScene extends Phaser.Scene {
 
     const bullet = new EnemyBullet(this, enemy.x, enemy.y, 6, dirX, dirY, speed, damage)
     this.enemyBullets.add(bullet)
+    bullet.initPhysics()
 
     enemy.setData(key, getShooterEnemyShootIntervalMs(this.level))
   }
@@ -549,6 +550,7 @@ export class MainScene extends Phaser.Scene {
     })
 
     this.poopProjectiles.add(poop)
+    poop.initPhysics()
     enemy.setData(key, getThrowerEnemyThrowIntervalMs(this.level))
   }
 
