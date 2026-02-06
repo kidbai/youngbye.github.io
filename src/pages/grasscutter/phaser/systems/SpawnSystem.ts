@@ -3,10 +3,14 @@
  */
 
 import Phaser from 'phaser'
-import { Enemy } from '../objects/Enemy'
-import { getLevelConfig, WORLD_WIDTH, WORLD_HEIGHT, ENEMIES_PER_LEVEL } from '../../balance'
+import { Enemy, type EnemyType } from '../objects/Enemy'
+import { getLevelConfig, getEnemyTypeSpawnWeights, WORLD_WIDTH, WORLD_HEIGHT, ENEMIES_PER_LEVEL } from '../../balance'
 
-const ENEMY_IMAGES = ['minion', 'minion2', 'monster']
+const ENEMY_TYPE_IMAGE: Record<EnemyType, string> = {
+  shooter: 'minion',
+  thrower: 'minion2',
+  melee: 'monster',
+}
 
 export class SpawnSystem {
   private scene: Phaser.Scene
@@ -120,16 +124,28 @@ export class SpawnSystem {
       }
     }
 
-    const imageKey = ENEMY_IMAGES[Phaser.Math.Between(0, ENEMY_IMAGES.length - 1)]
+    const enemyType = this.pickEnemyType()
+    const imageKey = ENEMY_TYPE_IMAGE[enemyType]
 
     const enemy = new Enemy(this.scene, spawn.x, spawn.y, {
       hp: config.enemyHp,
       maxHp: config.enemyHp,
       speed: config.enemySpeed * 60, // 转换为像素/秒
       imageKey,
+      enemyType,
     })
 
     this.enemies.add(enemy)
+  }
+
+  private pickEnemyType(): EnemyType {
+    const w = getEnemyTypeSpawnWeights(this.level)
+    const total = w.melee + w.shooter + w.thrower
+    const r = Phaser.Math.Between(1, total)
+
+    if (r <= w.melee) return 'melee'
+    if (r <= w.melee + w.shooter) return 'shooter'
+    return 'thrower'
   }
 
   /** 获取已生成数量 */

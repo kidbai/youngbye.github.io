@@ -4,7 +4,7 @@
 
 import Phaser from 'phaser'
 import { eventBus, Events, emitStateUpdate, emitNeedUpgrade, emitPlayerDead, emitVictory } from '../events'
-import type { MoveVector, GameSnapshot, UpgradeType } from '../types'
+import type { MoveVector, GameSnapshot, UpgradeOption, UpgradeKind, UpgradeRarity } from '../types'
 import {
   WORLD_WIDTH,
   WORLD_HEIGHT,
@@ -13,6 +13,7 @@ import {
   clamp,
   ENEMIES_PER_LEVEL,
   PLAYER_MAX_HP,
+  TOTAL_LEVELS,
   KILLS_PER_UPGRADE,
   MAX_WEAPONS,
   INITIAL_WEAPON_DAMAGE,
@@ -22,14 +23,36 @@ import {
   UPGRADE_DAMAGE_INCREASE,
   UPGRADE_RANGE_INCREASE,
   UPGRADE_SPEED_INCREASE,
+  EVOLVE_AT_PLAYER_LEVEL,
+  EVOLVE_PITY_AFTER_MISSES,
+  UPGRADE_RARITY_WEIGHTS,
+  STAT_UPGRADE_VALUES,
+  GUN_BASE,
+  getMeleeEnemyAttackIntervalMs,
+  getMeleeEnemyAttackDamage,
+  getShooterEnemyShootIntervalMs,
+  getShooterEnemyBulletSpeed,
+  getShooterEnemyBulletDamage,
+  getThrowerEnemyThrowIntervalMs,
+  THROWER_POOP_IMPACT_RADIUS,
+  getThrowerEnemyImpactDamage,
+  POOP_FIELD_DURATION_MS,
+  POOP_FIELD_TICK_MS,
+  getPoopFieldTickDamage,
 } from '../../balance'
 import { Player } from '../objects/Player'
 import { Enemy } from '../objects/Enemy'
 import { Boss } from '../objects/Boss'
 import { BossBullet } from '../objects/BossBullet'
+import { EnemyBullet } from '../objects/EnemyBullet'
+import { PoopProjectile } from '../objects/PoopProjectile'
+import { AoeField } from '../objects/AoeField'
 import { SpawnSystem } from '../systems/SpawnSystem'
-import { WeaponSystem } from '../systems/WeaponSystem'
+import { PlayerGunSystem } from '../systems/PlayerGunSystem'
 import { SaveSystem } from '../systems/SaveSystem'
+import { PlayerBullet } from '../objects/PlayerBullet'
+import { PlayerExplosiveProjectile } from '../objects/PlayerExplosiveProjectile'
+import { ExplosionFx } from '../objects/ExplosionFx'
 import { createOverworldMap, isBlockedAtWorldXY } from '../maps/OverworldMap'
 
 /** 玩家被击中时的重庆话骚话 */
@@ -50,7 +73,6 @@ const PLAYER_HIT_SPEECHES = [
 const BOSS_TOUCH_DAMAGE = 25
 const BOSS_TOUCH_COOLDOWN = 650
 const BOSS_KNOCKBACK_DISTANCE = 40
-const TOTAL_LEVELS = 10
 
 export class MainScene extends Phaser.Scene {
   // 玩家
@@ -68,9 +90,18 @@ export class MainScene extends Phaser.Scene {
   // Boss 子弹组（需要与地形碰撞，因此用 Arcade 物理组）
   private bossBullets!: Phaser.Physics.Arcade.Group
 
+  // 普通敌人的子弹/投掷物
+  private enemyBullets!: Phaser.Physics.Arcade.Group
+  private poopProjectiles!: Phaser.Physics.Arcade.Group
+  private aoeFields!: Phaser.GameObjects.Group
+
   // 系统
   private spawnSystem!: SpawnSystem
-  private weaponSystem!: WeaponSystem
+  private gunSystem!: PlayerGunSystem
+
+  // 玩家子弹/投射物组（Arcade 物理组）
+  private playerBullets!: Phaser.Physics.Arcade.Group
+  private playerProjectiles!: Phaser.Physics.Arcade.Group
 
   // 移动向量（来自摇杆）
   private moveVector: MoveVector = { x: 0, y: 0 }
@@ -92,6 +123,7 @@ export class MainScene extends Phaser.Scene {
   private totalKills = 0 // 累计击杀（用于升级计数）
   private playerLevel = 1
   private pendingUpgrades = 0 // 待处理的升级次数
+  private evolveMisses = 0 // 达到进化门槛后，连续未选进化的次数（保底用）
   private bossSpawned = false
 
   // 武器属性
@@ -100,8 +132,6 @@ export class MainScene extends Phaser.Scene {
   private weaponRotationSpeed = INITIAL_WEAPON_ROTATION_SPEED
   private weaponCount = INITIAL_WEAPON_COUNT
 
-  // 伤害冷却帧计数（避免每帧重复伤害）
-  private weaponHitCooldown: Map<number, number> = new Map()
 
   constructor() {
     super({ key: 'MainScene' })
@@ -122,6 +152,9 @@ export class MainScene extends Phaser.Scene {
     // 创建组（使用物理组以支持碰撞）
     this.enemies = this.physics.add.group()
     this.bossBullets = this.physics.add.group()
+    this.enemyBullets = this.physics.add.group()
+    this.poopProjectiles = this.physics.add.group()
+    this.aoeFields = this.add.group()
 
     // 地形碰撞：敌人会被地形挡住
     this.physics.add.collider(this.enemies, this.terrainLayer)
@@ -134,17 +167,32 @@ export class MainScene extends Phaser.Scene {
       this.bossBullets.remove(bullet, true, true)
     })
 
+    // 地形碰撞：普通敌人子弹撞墙即销毁
+    this.physics.add.collider(this.enemyBullets, this.terrainLayer, (obj) => {
+      const bullet = obj as EnemyBullet
+      if (!bullet.active) return
+      bullet.destroy()
+      this.enemyBullets.remove(bullet, true, true)
+    })
+
+    // 地形碰撞：大便撞墙也会落地爆开
+    this.physics.add.collider(this.poopProjectiles, this.terrainLayer, (obj) => {
+      const poop = obj as PoopProjectile
+      if (!poop.active) return
+      this.onPoopImpact(poop)
+      poop.destroy()
+      this.poopProjectiles.remove(poop, true, true)
+    })
+
     // 设置敌人之间的碰撞（防止重叠）
     this.physics.add.collider(this.enemies, this.enemies)
 
     // 加载存档
     const save = SaveSystem.load()
     this.level = save.currentLevel
-    this.weaponDamage = save.weaponDamage
-    this.weaponRange = save.weaponRange
-    this.weaponRotationSpeed = save.weaponRotationSpeed
-    this.weaponCount = save.weaponCount
     this.playerLevel = save.playerLevel
+    this.weaponCount = save.weaponCount
+    this.evolveMisses = save.evolveMisses
 
     // 创建玩家（确保不出生在阻挡地形上）
     const startPos = this.findFreePosition(worldW / 2, worldH / 2)
@@ -158,13 +206,63 @@ export class MainScene extends Phaser.Scene {
     // 地形碰撞：玩家会被地形挡住
     this.physics.add.collider(this.player, this.terrainLayer)
 
-    // 创建武器系统
-    this.weaponSystem = new WeaponSystem(this, {
-      damage: this.weaponDamage,
-      range: this.weaponRange,
-      rotationSpeed: this.weaponRotationSpeed,
+    // 创建枪械系统（自动索敌射击）
+    this.gunSystem = new PlayerGunSystem(this, this.enemies)
+    this.playerBullets = this.gunSystem.getBulletsGroup()
+    this.playerProjectiles = this.gunSystem.getProjectilesGroup()
+
+    // 地形碰撞：玩家子弹/投射物撞墙即销毁（避免穿墙）
+    this.physics.add.collider(this.playerBullets, this.terrainLayer, (obj) => {
+      const b = obj as PlayerBullet
+      if (!b.active) return
+      b.destroy()
+      this.playerBullets.remove(b, true, true)
     })
-    this.weaponSystem.initWeapons(this.weaponCount)
+
+    this.physics.add.collider(this.playerProjectiles, this.terrainLayer, (obj) => {
+      const p = obj as PlayerExplosiveProjectile
+      if (!p.active) return
+      this.explodeAt(p.x, p.y, p.explosionRadius, p.damage)
+      p.destroy()
+      this.playerProjectiles.remove(p, true, true)
+    })
+
+    // 命中：子弹 → 敌人
+    this.physics.add.overlap(this.playerBullets, this.enemies, (a, b) => {
+      const bullet = a as PlayerBullet
+      const enemy = b as Enemy
+      if (!bullet.active || !enemy.active) return
+
+      bullet.destroy()
+      this.playerBullets.remove(bullet, true, true)
+
+      const isDead = enemy.takeDamage(bullet.damage)
+      if (isDead) {
+        this.onEnemyKilled(enemy)
+      }
+    })
+
+    // 命中：爆炸投射物 → 敌人（命中即爆）
+    this.physics.add.overlap(this.playerProjectiles, this.enemies, (a, b) => {
+      const proj = a as PlayerExplosiveProjectile
+      const enemy = b as Enemy
+      if (!proj.active || !enemy.active) return
+
+      this.explodeAt(proj.x, proj.y, proj.explosionRadius, proj.damage)
+      proj.destroy()
+      this.playerProjectiles.remove(proj, true, true)
+    })
+
+    // 应用存档中的枪械状态
+    this.gunSystem.setGunId(save.gunKey)
+    this.gunSystem.setMultipliers({
+      damageMul: save.gunDamageMul,
+      fireRateMul: save.gunFireRateMul,
+      rangeMul: save.gunRangeMul,
+    })
+
+    // 同步 HUD/旧字段（临时兼容）
+    this.syncGunStatsToLegacyFields()
 
     // 创建刷怪系统
     this.spawnSystem = new SpawnSystem(this, this.enemies)
@@ -202,9 +300,13 @@ export class MainScene extends Phaser.Scene {
     this.updatePlayerMovement()
     this.player.updatePlayer(delta)
 
-    // 更新武器系统
-    this.weaponSystem.setPlayerPosition(this.player.x, this.player.y)
-    this.weaponSystem.update(delta)
+    // 更新枪械系统
+    const worldW = this.registry.get('worldWidth') || WORLD_WIDTH
+    const worldH = this.registry.get('worldHeight') || WORLD_HEIGHT
+
+    this.gunSystem.setPlayerPosition(this.player.x, this.player.y)
+    this.gunSystem.update(delta, worldW, worldH)
+    this.syncGunStatsToLegacyFields()
 
     // 更新敌人
     this.updateEnemies(delta)
@@ -215,8 +317,13 @@ export class MainScene extends Phaser.Scene {
     // 更新 Boss 子弹
     this.updateBossBullets(delta)
 
-    // 武器命中检测
-    this.checkWeaponHits(delta)
+    // 更新普通敌人的投射物/残留区
+    this.updateEnemyBullets(delta)
+    this.updatePoopProjectiles(delta)
+    this.updateAoeFields(delta)
+
+    // 玩家子弹命中 Boss
+    this.checkPlayerShotsHitBoss()
 
     // 检查升级
     this.checkUpgrade()
@@ -270,6 +377,11 @@ export class MainScene extends Phaser.Scene {
     // 清理敌人和子弹
     this.enemies.clear(true, true)
     this.bossBullets.clear(true, true)
+    this.enemyBullets.clear(true, true)
+    this.poopProjectiles.clear(true, true)
+    this.aoeFields.clear(true, true)
+    this.playerBullets?.clear(true, true)
+    this.playerProjectiles?.clear(true, true)
 
     // 开始刷怪
     this.spawnSystem.startSpawning(this.level, () => this.onKillTargetReached())
@@ -308,26 +420,227 @@ export class MainScene extends Phaser.Scene {
     body.setVelocity(nx * this.player.speed, ny * this.player.speed)
   }
 
-  /** 更新敌人 */
+  /** 更新敌人（追击/保持距离 + 攻击逻辑） */
   private updateEnemies(delta: number): void {
+    const level = this.level
+
     this.enemies.getChildren().forEach((obj) => {
       const enemy = obj as Enemy
       if (!enemy.active) return
 
-      enemy.chaseTarget(this.player.x, this.player.y)
-      enemy.updateEnemy(delta)
-
-      // 检测与玩家碰撞（接触伤害）
       const dx = this.player.x - enemy.x
       const dy = this.player.y - enemy.y
       const dist = Math.sqrt(dx * dx + dy * dy)
 
-      if (dist < this.player.radius + enemy.radius) {
-        // 敌人碰到玩家时死亡，同时玩家受伤
-        this.player.takeDamage(5)
+      // 行为：不同类型有不同的走位策略
+      if (enemy.enemyType === 'melee') {
+        enemy.chaseTarget(this.player.x, this.player.y)
+      } else {
+        // shooter/thrower：保持距离
+        const body = enemy.getBody()
+        const minDist = enemy.enemyType === 'shooter' ? 220 : 260
+        const maxDist = enemy.enemyType === 'shooter' ? 380 : 420
+
+        if (dist > 0) {
+          if (dist > maxDist) {
+            body.setVelocity((dx / dist) * enemy.speed, (dy / dist) * enemy.speed)
+          } else if (dist < minDist) {
+            body.setVelocity((-dx / dist) * enemy.speed * 0.95, (-dy / dist) * enemy.speed * 0.95)
+          } else {
+            // 中间距离：横移一点点，让战斗更“活”
+            const sx = -dy / dist
+            const sy = dx / dist
+            body.setVelocity(sx * enemy.speed * 0.35, sy * enemy.speed * 0.35)
+          }
+        }
+      }
+
+      enemy.updateEnemy(delta)
+
+      // 近战接触攻击：不再“自爆死亡”，改为冷却攻击
+      const contactKey = 'contactCd'
+      let contactCd = (enemy.getData(contactKey) as number) ?? 0
+      contactCd = Math.max(0, contactCd - delta)
+
+      const contactRange = this.player.radius + enemy.radius
+      if (dist < contactRange && contactCd <= 0) {
+        const dmg = enemy.enemyType === 'melee'
+          ? getMeleeEnemyAttackDamage(level)
+          : Math.round(3 + 0.3 * level)
+
+        const interval = enemy.enemyType === 'melee'
+          ? getMeleeEnemyAttackIntervalMs(level)
+          : 950
+
+        this.player.takeDamage(dmg)
         this.player.showSpeech(PLAYER_HIT_SPEECHES[Math.floor(Math.random() * PLAYER_HIT_SPEECHES.length)])
-        // 敌人接触玩家也算击杀（否则 kills 无法达到 100）
-        this.onEnemyKilled(enemy)
+        this.emitState()
+
+        enemy.setData(contactKey, interval)
+      } else {
+        enemy.setData(contactKey, contactCd)
+      }
+
+      // 射击怪：定时射击
+      if (enemy.enemyType === 'shooter') {
+        this.tryEnemyShoot(enemy, dx, dy, dist, delta)
+      }
+
+      // 丢大便怪：定时投掷落点 AOE
+      if (enemy.enemyType === 'thrower') {
+        this.tryEnemyThrow(enemy, delta)
+      }
+    })
+  }
+
+  private tryEnemyShoot(enemy: Enemy, dx: number, dy: number, dist: number, delta: number): void {
+    const key = 'shootCd'
+    let cd = (enemy.getData(key) as number) ?? Phaser.Math.Between(0, 250)
+    cd = Math.max(0, cd - delta)
+
+    if (cd > 0) {
+      enemy.setData(key, cd)
+      return
+    }
+
+    if (dist <= 0) {
+      enemy.setData(key, getShooterEnemyShootIntervalMs(this.level))
+      return
+    }
+
+    const speed = getShooterEnemyBulletSpeed(this.level)
+    const damage = getShooterEnemyBulletDamage(this.level)
+
+    // 轻微散布，让弹幕没那么“锁死”
+    const baseAngle = Math.atan2(dy, dx)
+    const angle = baseAngle + Phaser.Math.FloatBetween(-0.12, 0.12)
+    const dirX = Math.cos(angle)
+    const dirY = Math.sin(angle)
+
+    const bullet = new EnemyBullet(this, enemy.x, enemy.y, 6, dirX, dirY, speed, damage)
+    this.enemyBullets.add(bullet)
+
+    enemy.setData(key, getShooterEnemyShootIntervalMs(this.level))
+  }
+
+  private tryEnemyThrow(enemy: Enemy, delta: number): void {
+    const key = 'throwCd'
+    let cd = (enemy.getData(key) as number) ?? Phaser.Math.Between(0, 350)
+    cd = Math.max(0, cd - delta)
+
+    if (cd > 0) {
+      enemy.setData(key, cd)
+      return
+    }
+
+    const speed = getShooterEnemyBulletSpeed(this.level)
+    const poop = new PoopProjectile(this, {
+      x: enemy.x,
+      y: enemy.y,
+      targetX: this.player.x,
+      targetY: this.player.y,
+      speed,
+      radius: 8,
+      impactRadius: THROWER_POOP_IMPACT_RADIUS,
+      impactDamage: getThrowerEnemyImpactDamage(this.level),
+      fieldDurationMs: POOP_FIELD_DURATION_MS,
+      fieldTickMs: POOP_FIELD_TICK_MS,
+      fieldTickDamage: getPoopFieldTickDamage(this.level),
+    })
+
+    this.poopProjectiles.add(poop)
+    enemy.setData(key, getThrowerEnemyThrowIntervalMs(this.level))
+  }
+
+  private updateEnemyBullets(_delta: number): void {
+    const worldW = this.registry.get('worldWidth') || WORLD_WIDTH
+    const worldH = this.registry.get('worldHeight') || WORLD_HEIGHT
+
+    this.enemyBullets.getChildren().forEach((obj) => {
+      const bullet = obj as EnemyBullet
+      if (!bullet.active) return
+
+      if (bullet.isOutOfBounds(worldW, worldH)) {
+        bullet.destroy()
+        this.enemyBullets.remove(bullet, true, true)
+        return
+      }
+
+      const dx = this.player.x - bullet.x
+      const dy = this.player.y - bullet.y
+      const dist = Math.sqrt(dx * dx + dy * dy)
+
+      if (dist < this.player.radius + 8) {
+        this.player.takeDamage(bullet.damage)
+        this.player.showSpeech(PLAYER_HIT_SPEECHES[Math.floor(Math.random() * PLAYER_HIT_SPEECHES.length)])
+        bullet.destroy()
+        this.enemyBullets.remove(bullet, true, true)
+        this.emitState()
+      }
+    })
+  }
+
+  private updatePoopProjectiles(_delta: number): void {
+    const worldW = this.registry.get('worldWidth') || WORLD_WIDTH
+    const worldH = this.registry.get('worldHeight') || WORLD_HEIGHT
+
+    this.poopProjectiles.getChildren().forEach((obj) => {
+      const poop = obj as PoopProjectile
+      if (!poop.active) return
+
+      if (poop.isOutOfBounds(worldW, worldH)) {
+        poop.destroy()
+        this.poopProjectiles.remove(poop, true, true)
+        return
+      }
+
+      if (poop.reachedTarget()) {
+        this.onPoopImpact(poop)
+        poop.destroy()
+        this.poopProjectiles.remove(poop, true, true)
+      }
+    })
+  }
+
+  private onPoopImpact(poop: PoopProjectile): void {
+    // 落点瞬间伤害
+    new ExplosionFx(this, { x: poop.x, y: poop.y, radius: poop.impactRadius, color: 0xf59e0b, durationMs: 220 })
+
+    const dx = this.player.x - poop.x
+    const dy = this.player.y - poop.y
+    const dist = Math.sqrt(dx * dx + dy * dy)
+
+    if (dist < poop.impactRadius + this.player.radius) {
+      this.player.takeDamage(poop.impactDamage)
+      this.player.showSpeech(PLAYER_HIT_SPEECHES[Math.floor(Math.random() * PLAYER_HIT_SPEECHES.length)])
+      this.emitState()
+    }
+
+    // 残留区（低频 tick）
+    const field = new AoeField(this, {
+      x: poop.x,
+      y: poop.y,
+      radius: Math.max(50, poop.impactRadius - 10),
+      durationMs: poop.fieldDurationMs,
+      tickMs: poop.fieldTickMs,
+      tickDamage: poop.fieldTickDamage,
+      color: 0xf59e0b,
+    })
+    this.aoeFields.add(field)
+  }
+
+  private updateAoeFields(delta: number): void {
+    this.aoeFields.getChildren().forEach((obj) => {
+      const field = obj as AoeField
+      if (!field.active) return
+
+      const done = field.updateField(delta, this.player.x, this.player.y, (amount) => {
+        this.player.takeDamage(amount)
+        this.emitState()
+      })
+
+      if (done) {
+        this.aoeFields.remove(field, true, true)
       }
     })
   }
@@ -428,43 +741,91 @@ export class MainScene extends Phaser.Scene {
     })
   }
 
-  /** 武器命中检测 */
-  private checkWeaponHits(delta: number): void {
-    // 更新冷却
-    this.weaponHitCooldown.forEach((cd, id) => {
-      if (cd > 0) {
-        this.weaponHitCooldown.set(id, cd - delta)
+  /**
+   * 将枪械系统的实时数值同步到旧字段（临时兼容 React HUD / 存档结构）。
+   * 后续会在类型与 UI 层面做一次性迁移。
+   */
+  private syncGunStatsToLegacyFields(): void {
+    const stats = this.gunSystem.getComputedStats()
+    this.weaponDamage = stats.bulletDamage
+    this.weaponRange = stats.range
+    this.weaponRotationSpeed = stats.fireRate
+  }
+
+  /** 玩家子弹命中 Boss（Boss 不是 group，走轻量判定） */
+  private checkPlayerShotsHitBoss(): void {
+    if (!this.boss) return
+
+    // 普通子弹
+    this.playerBullets.getChildren().forEach((obj) => {
+      const bullet = obj as PlayerBullet
+      if (!bullet.active || !this.boss) return
+
+      const dx = this.boss.x - bullet.x
+      const dy = this.boss.y - bullet.y
+      const dist = Math.sqrt(dx * dx + dy * dy)
+      if (dist < this.boss.radius + 8) {
+        const isDead = this.boss.takeDamage(bullet.damage)
+        bullet.destroy()
+        this.playerBullets.remove(bullet, true, true)
+
+        if (isDead) {
+          this.onBossKilled()
+        }
+        this.emitState()
       }
     })
 
-    // 检测敌人
-    const hitEnemies = this.weaponSystem.checkHitEnemies(this.enemies)
-    hitEnemies.forEach((enemy) => {
-      // 检查冷却
-      const enemyId = enemy.getData('id') as number || Math.random()
-      enemy.setData('id', enemyId)
+    // 爆炸投射物
+    this.playerProjectiles.getChildren().forEach((obj) => {
+      const proj = obj as PlayerExplosiveProjectile
+      if (!proj.active || !this.boss) return
 
-      const cd = this.weaponHitCooldown.get(enemyId) || 0
-      if (cd > 0) return
+      const dx = this.boss.x - proj.x
+      const dy = this.boss.y - proj.y
+      const dist = Math.sqrt(dx * dx + dy * dy)
+      if (dist < this.boss.radius + 10) {
+        this.explodeAt(proj.x, proj.y, proj.explosionRadius, proj.damage)
+        proj.destroy()
+        this.playerProjectiles.remove(proj, true, true)
+        this.emitState()
+      }
+    })
+  }
 
-      this.weaponHitCooldown.set(enemyId, 100) // 100ms 冷却
+  /** 爆炸：对范围内敌人/Boss 造成伤害（无衰减，便于初版平衡） */
+  private explodeAt(x: number, y: number, radius: number, damage: number): void {
+    new ExplosionFx(this, { x, y, radius })
 
-      const isDead = enemy.takeDamage(this.weaponDamage)
+    // 普通敌人
+    const victims: Enemy[] = []
+    this.enemies.getChildren().forEach((obj) => {
+      const enemy = obj as Enemy
+      if (!enemy.active) return
+
+      const dx = enemy.x - x
+      const dy = enemy.y - y
+      const dist = Math.sqrt(dx * dx + dy * dy)
+      if (dist < radius + enemy.radius) {
+        victims.push(enemy)
+      }
+    })
+
+    victims.forEach((enemy) => {
+      if (!enemy.active) return
+      const isDead = enemy.takeDamage(damage)
       if (isDead) {
         this.onEnemyKilled(enemy)
       }
     })
 
-    // 检测 Boss
-    if (this.boss && this.weaponSystem.checkHitBoss(this.boss)) {
-      const bossId = this.boss.getData('id') as number || Math.random()
-      this.boss.setData('id', bossId)
-
-      const cd = this.weaponHitCooldown.get(bossId) || 0
-      if (cd <= 0) {
-        this.weaponHitCooldown.set(bossId, 100)
-
-        const isDead = this.boss.takeDamage(this.weaponDamage)
+    // Boss（若存在）
+    if (this.boss && this.boss.active) {
+      const dx = this.boss.x - x
+      const dy = this.boss.y - y
+      const dist = Math.sqrt(dx * dx + dy * dy)
+      if (dist < radius + this.boss.radius) {
+        const isDead = this.boss.takeDamage(damage)
         if (isDead) {
           this.onBossKilled()
         }
@@ -504,7 +865,7 @@ export class MainScene extends Phaser.Scene {
       this.gameState = 'upgrading'
       // 暂停物理引擎，停止所有物体移动
       this.physics.pause()
-      emitNeedUpgrade()
+      emitNeedUpgrade(this.generateUpgradeOptions())
       this.emitState()
     }
   }
@@ -530,8 +891,11 @@ export class MainScene extends Phaser.Scene {
     this.bossSpawned = true
     this.spawnSystem.stopSpawning()
 
-    // 清理剩余敌人
+    // 清理剩余敌人/投射物（进入 Boss 战前收干净，避免干扰）
     this.enemies.clear(true, true)
+    this.enemyBullets.clear(true, true)
+    this.poopProjectiles.clear(true, true)
+    this.aoeFields.clear(true, true)
 
     // 在玩家上方生成 Boss（确保不出生在阻挡地形上）
     const bossHp = getBossHpByLevel(this.level)
@@ -564,15 +928,23 @@ export class MainScene extends Phaser.Scene {
 
     // 进入下一关
     this.level++
-    SaveSystem.saveProgress(
-      this.level,
-      this.score,
-      this.weaponDamage,
-      this.weaponRange,
-      this.weaponRotationSpeed,
-      this.weaponCount,
-      this.playerLevel
-    )
+
+    const mul = this.gunSystem.getMultipliers()
+    SaveSystem.saveProgress({
+      currentLevel: this.level,
+      score: this.score,
+      playerLevel: this.playerLevel,
+      gunKey: this.gunSystem.getGunId(),
+      gunDamageMul: mul.damageMul,
+      gunFireRateMul: mul.fireRateMul,
+      gunRangeMul: mul.rangeMul,
+      evolveMisses: this.evolveMisses,
+      // 旧字段（兼容）
+      weaponDamage: this.weaponDamage,
+      weaponRange: this.weaponRange,
+      weaponRotationSpeed: this.weaponRotationSpeed,
+      weaponCount: this.weaponCount,
+    })
 
     this.startLevel()
     this.emitState()
@@ -615,8 +987,8 @@ export class MainScene extends Phaser.Scene {
       this.emitState()
     })
 
-    eventBus.on<UpgradeType>(Events.APPLY_UPGRADE, (type) => {
-      this.applyUpgrade(type)
+    eventBus.on<UpgradeOption>(Events.APPLY_UPGRADE, (option) => {
+      this.applyUpgrade(option)
     })
 
     eventBus.on(Events.RESTART, () => {
@@ -632,37 +1004,188 @@ export class MainScene extends Phaser.Scene {
     })
   }
 
-  /** 应用升级 */
-  private applyUpgrade(type: UpgradeType): void {
-    switch (type) {
-      case 'damage':
-        this.weaponDamage += UPGRADE_DAMAGE_INCREASE
-        break
-      case 'range':
-        this.weaponRange += UPGRADE_RANGE_INCREASE
-        break
-      case 'speed':
-        this.weaponRotationSpeed += UPGRADE_SPEED_INCREASE
-        break
-      case 'weapon':
-        if (this.weaponCount < MAX_WEAPONS) {
-          this.weaponCount++
-          this.weaponSystem.initWeapons(this.weaponCount)
+  /** 生成“随机 3 选 1 + 稀有度 + 进化保底”的升级选项 */
+  private generateUpgradeOptions(): UpgradeOption[] {
+    const nextLevel = this.playerLevel + 1
+    const evolveInfo = this.getEvolveInfoForNextLevel(nextLevel)
+    const canEvolve = Boolean(evolveInfo)
+
+    const options: UpgradeOption[] = []
+
+    // 进化保底：达到门槛后，连续 N 次没刷到/没选到进化则必出
+    const forceEvolve = canEvolve && this.evolveMisses >= EVOLVE_PITY_AFTER_MISSES
+    if (forceEvolve && evolveInfo) {
+      options.push(this.buildEvolveOption(evolveInfo))
+    }
+
+    const kindPool: UpgradeKind[] = ['damageMul', 'fireRateMul', 'rangeMul']
+    if (canEvolve && !forceEvolve) {
+      // 非保底情况下：让进化以较低权重出现
+      kindPool.push('evolve')
+    }
+
+    const pickedKinds = new Set<UpgradeKind>(options.map((o) => o.kind))
+
+    const pickKind = (): UpgradeKind => {
+      const candidates = kindPool
+        .filter((k) => !pickedKinds.has(k))
+        .map((k) => ({
+          item: k,
+          weight: k === 'evolve' ? 0.35 : 1,
+        }))
+
+      return this.weightedPick(candidates)
+    }
+
+    // 填满 3 个不重复 kind 的选项
+    for (let i = 0; i < 24 && options.length < 3; i++) {
+      const kind = pickKind()
+      pickedKinds.add(kind)
+
+      if (kind === 'evolve') {
+        if (evolveInfo) {
+          options.push(this.buildEvolveOption(evolveInfo))
         }
+        continue
+      }
+
+      const rarity = this.rollRarity()
+      options.push(this.buildStatOption(kind, rarity))
+    }
+
+    return options.slice(0, 3)
+  }
+
+  private getEvolveInfoForNextLevel(nextLevel: number): {
+    fromKey: keyof typeof GUN_BASE
+    toKey: keyof typeof GUN_BASE
+    requiredLevel: number
+  } | null {
+    const current = this.gunSystem.getGunId()
+
+    if (current === 'pistol') {
+      return nextLevel >= EVOLVE_AT_PLAYER_LEVEL.smg
+        ? { fromKey: 'pistol', toKey: 'smg', requiredLevel: EVOLVE_AT_PLAYER_LEVEL.smg }
+        : null
+    }
+
+    if (current === 'smg') {
+      return nextLevel >= EVOLVE_AT_PLAYER_LEVEL.grenadeMg
+        ? { fromKey: 'smg', toKey: 'grenadeMg', requiredLevel: EVOLVE_AT_PLAYER_LEVEL.grenadeMg }
+        : null
+    }
+
+    if (current === 'grenadeMg') {
+      return nextLevel >= EVOLVE_AT_PLAYER_LEVEL.cannon
+        ? { fromKey: 'grenadeMg', toKey: 'cannon', requiredLevel: EVOLVE_AT_PLAYER_LEVEL.cannon }
+        : null
+    }
+
+    return null
+  }
+
+  private buildEvolveOption(info: { fromKey: keyof typeof GUN_BASE; toKey: keyof typeof GUN_BASE }): UpgradeOption {
+    const fromTitle = GUN_BASE[info.fromKey].title
+    const toTitle = GUN_BASE[info.toKey].title
+
+    return {
+      id: `evolve:${String(info.toKey)}`,
+      kind: 'evolve',
+      rarity: 'epic',
+      title: '进化',
+      desc: `${fromTitle} → ${toTitle}`,
+      evolveToGunId: info.toKey,
+    }
+  }
+
+  private buildStatOption(kind: Exclude<UpgradeKind, 'evolve'>, rarity: UpgradeRarity): UpgradeOption {
+    const labelMap: Record<Exclude<UpgradeKind, 'evolve'>, { title: string; descPrefix: string; key: keyof typeof STAT_UPGRADE_VALUES }> = {
+      damageMul: { title: '攻击力提升', descPrefix: '攻击力', key: 'damageMul' },
+      fireRateMul: { title: '攻速提升', descPrefix: '攻速', key: 'fireRateMul' },
+      rangeMul: { title: '射程提升', descPrefix: '射程', key: 'rangeMul' },
+    }
+
+    const meta = labelMap[kind]
+    const value = STAT_UPGRADE_VALUES[meta.key][rarity]
+
+    return {
+      id: `${kind}:${rarity}`,
+      kind,
+      rarity,
+      title: meta.title,
+      desc: `${meta.descPrefix} +${Math.round(value * 100)}%`,
+      value,
+    }
+  }
+
+  private rollRarity(): UpgradeRarity {
+    return this.weightedPick([
+      { item: 'common', weight: UPGRADE_RARITY_WEIGHTS.common },
+      { item: 'rare', weight: UPGRADE_RARITY_WEIGHTS.rare },
+      { item: 'epic', weight: UPGRADE_RARITY_WEIGHTS.epic },
+    ])
+  }
+
+  private weightedPick<T>(list: Array<{ item: T; weight: number }>): T {
+    const total = list.reduce((sum, x) => sum + x.weight, 0)
+    let r = Phaser.Math.FloatBetween(0, total)
+    for (const x of list) {
+      r -= x.weight
+      if (r <= 0) return x.item
+    }
+    return list[list.length - 1].item
+  }
+
+  /** 应用升级（React 选择某一张卡片后回传） */
+  private applyUpgrade(option: UpgradeOption): void {
+    const nextLevel = this.playerLevel + 1
+    const evolveInfo = this.getEvolveInfoForNextLevel(nextLevel)
+    const canEvolve = Boolean(evolveInfo)
+
+    const mul = this.gunSystem.getMultipliers()
+
+    // 进化保底计数：达到门槛后，选了非进化就累计；选进化则清零
+    if (canEvolve) {
+      if (option.kind === 'evolve') {
+        this.evolveMisses = 0
+      } else {
+        this.evolveMisses++
+      }
+    }
+
+    switch (option.kind) {
+      case 'damageMul': {
+        const v = option.value ?? 0
+        this.gunSystem.setMultipliers({ damageMul: mul.damageMul * (1 + v) })
         break
+      }
+      case 'fireRateMul': {
+        const v = option.value ?? 0
+        this.gunSystem.setMultipliers({ fireRateMul: mul.fireRateMul * (1 + v) })
+        break
+      }
+      case 'rangeMul': {
+        const v = option.value ?? 0
+        this.gunSystem.setMultipliers({ rangeMul: mul.rangeMul * (1 + v) })
+        break
+      }
+      case 'evolve': {
+        if (option.evolveToGunId) {
+          this.gunSystem.setGunId(option.evolveToGunId)
+        }
+        this.evolveMisses = 0
+        break
+      }
     }
 
     this.playerLevel++
     this.pendingUpgrades--
 
-    this.weaponSystem.updateConfig({
-      damage: this.weaponDamage,
-      range: this.weaponRange,
-      rotationSpeed: this.weaponRotationSpeed,
-    })
+    this.syncGunStatsToLegacyFields()
 
     if (this.pendingUpgrades > 0) {
-      // 还有待处理的升级
+      // 还有待处理的升级：继续停在升级界面，并下发下一轮 3 选 1
+      emitNeedUpgrade(this.generateUpgradeOptions())
       this.emitState()
     } else {
       // 所有升级完成，恢复物理引擎
@@ -682,6 +1205,7 @@ export class MainScene extends Phaser.Scene {
     this.totalKills = 0
     this.playerLevel = 1
     this.pendingUpgrades = 0
+    this.evolveMisses = 0
     this.weaponDamage = INITIAL_WEAPON_DAMAGE
     this.weaponRange = INITIAL_WEAPON_RANGE
     this.weaponRotationSpeed = INITIAL_WEAPON_ROTATION_SPEED
@@ -695,13 +1219,15 @@ export class MainScene extends Phaser.Scene {
     this.player.y = startPos.y
     this.player.setHit(false)
 
-    // 重置武器
-    this.weaponSystem.updateConfig({
-      damage: this.weaponDamage,
-      range: this.weaponRange,
-      rotationSpeed: this.weaponRotationSpeed,
-    })
-    this.weaponSystem.initWeapons(this.weaponCount)
+    // 重置枪械
+    this.gunSystem.reset()
+    this.playerBullets.clear(true, true)
+    this.playerProjectiles.clear(true, true)
+    this.enemyBullets.clear(true, true)
+    this.poopProjectiles.clear(true, true)
+    this.aoeFields.clear(true, true)
+    this.syncGunStatsToLegacyFields()
+    this.weaponCount = 1
 
     // 清理 Boss
     if (this.boss) {
@@ -742,6 +1268,12 @@ export class MainScene extends Phaser.Scene {
   private killAllEnemies(): void {
     const count = this.enemies.getLength()
     this.enemies.clear(true, true)
+
+    // 顺手清理屏幕上的敌方投射物/残留区，避免“清屏后被阴”
+    this.enemyBullets.clear(true, true)
+    this.poopProjectiles.clear(true, true)
+    this.aoeFields.clear(true, true)
+
     this.kills += count
     this.totalKills += count
     this.score += count * 10
@@ -750,6 +1282,9 @@ export class MainScene extends Phaser.Scene {
 
   /** 推送状态到 React */
   private emitState(): void {
+    const gunStats = this.gunSystem.getComputedStats()
+    const gunMul = this.gunSystem.getMultipliers()
+
     const snapshot: GameSnapshot = {
       hp: this.player?.hp ?? PLAYER_MAX_HP,
       maxHp: PLAYER_MAX_HP,
@@ -760,7 +1295,16 @@ export class MainScene extends Phaser.Scene {
       bossHp: this.boss?.hp ?? 0,
       bossMaxHp: this.boss?.maxHp ?? 0,
       gameState: this.gameState,
+
       playerLevel: this.playerLevel,
+
+      gunKey: this.gunSystem.getGunId(),
+      gunTitle: gunStats.gunTitle,
+      gunDamageMul: gunMul.damageMul,
+      gunFireRateMul: gunMul.fireRateMul,
+      gunRangeMul: gunMul.rangeMul,
+      evolveMisses: this.evolveMisses,
+
       weaponDamage: this.weaponDamage,
       weaponRange: this.weaponRange,
       weaponRotationSpeed: this.weaponRotationSpeed,

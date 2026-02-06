@@ -5,23 +5,27 @@
  */
 
 import type { SaveData } from '../types'
-import {
-  INITIAL_WEAPON_DAMAGE,
-  INITIAL_WEAPON_RANGE,
-  INITIAL_WEAPON_ROTATION_SPEED,
-  INITIAL_WEAPON_COUNT,
-} from '../../balance'
+import { GUN_BASE } from '../../balance'
 
 const STORAGE_KEY = 'grasscutter_save'
 
 const DEFAULT_SAVE: SaveData = {
   currentLevel: 1,
   highScore: 0,
-  weaponDamage: INITIAL_WEAPON_DAMAGE,
-  weaponRange: INITIAL_WEAPON_RANGE,
-  weaponRotationSpeed: INITIAL_WEAPON_ROTATION_SPEED,
-  weaponCount: INITIAL_WEAPON_COUNT,
+
   playerLevel: 1,
+
+  gunKey: 'pistol',
+  gunDamageMul: 1,
+  gunFireRateMul: 1,
+  gunRangeMul: 1,
+  evolveMisses: 0,
+
+  // 旧字段：默认值对齐新版“手枪”
+  weaponDamage: GUN_BASE.pistol.baseDamage,
+  weaponRange: GUN_BASE.pistol.range,
+  weaponRotationSpeed: GUN_BASE.pistol.fireRate,
+  weaponCount: 1,
 }
 
 export class SaveSystem {
@@ -58,24 +62,16 @@ export class SaveSystem {
     }
   }
 
-  /** 保存进度 */
-  static saveProgress(
-    level: number,
-    score: number,
-    weaponDamage: number,
-    weaponRange: number,
-    weaponRotationSpeed: number,
-    weaponCount: number,
-    playerLevel: number
-  ): void {
+  /** 保存进度（支持增量 patch，便于向后兼容扩展字段） */
+  static saveProgress(patch: Partial<SaveData> & { currentLevel: number; score: number }): void {
+    const { score, ...rest } = patch
+
     const data = SaveSystem.load()
-    data.currentLevel = level
+    data.currentLevel = rest.currentLevel
     data.highScore = Math.max(data.highScore, score)
-    data.weaponDamage = weaponDamage
-    data.weaponRange = weaponRange
-    data.weaponRotationSpeed = weaponRotationSpeed
-    data.weaponCount = weaponCount
-    data.playerLevel = playerLevel
+
+    Object.assign(data, rest)
+
     SaveSystem.save(data)
   }
 

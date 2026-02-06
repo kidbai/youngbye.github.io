@@ -25,6 +25,103 @@ export const UPGRADE_DAMAGE_INCREASE = 8
 export const UPGRADE_RANGE_INCREASE = 14
 export const UPGRADE_SPEED_INCREASE = 0.35
 
+// ==================== 总关卡数 ====================
+
+/**
+ * 总关卡数（通关判定/跳关上限/数值曲线的名义范围）
+ * - UI 目前支持跳到 20
+ */
+export const TOTAL_LEVELS = 20
+
+// ==================== 枪械方案（单一真源） ====================
+
+/** 线性进化：手枪 → 冲锋枪 → 榴弹机枪 → 大炮 */
+export const EVOLVE_AT_PLAYER_LEVEL = {
+  smg: 6,
+  grenadeMg: 13,
+  cannon: 20,
+} as const
+
+/** 达到进化门槛后，连续错过进化卡 N 次则下一次必出 */
+export const EVOLVE_PITY_AFTER_MISSES = 2
+
+/** 稀有度权重（用于“随机 3 选 1”抽卡） */
+export const UPGRADE_RARITY_WEIGHTS = {
+  common: 75,
+  rare: 20,
+  epic: 5,
+} as const
+
+/** 三维属性升级（乘法叠加；例如 +8% => * 1.08） */
+export const STAT_UPGRADE_VALUES = {
+  damageMul: { common: 0.08, rare: 0.12, epic: 0.18 },
+  fireRateMul: { common: 0.06, rare: 0.09, epic: 0.14 },
+  rangeMul: { common: 0.07, rare: 0.1, epic: 0.16 },
+} as const
+
+/** 玩家子弹上限（控性能；SMG 阶段尤其重要） */
+export const PLAYER_BULLET_CAP = 70
+
+/** 枪械基础参数：单位说明
+ * - fireRate: 发/秒
+ * - range: 最大飞行距离（像素）
+ * - bulletSpeed: 像素/秒
+ */
+export const GUN_BASE = {
+  pistol: {
+    gunId: 'pistol',
+    tier: 1,
+    title: '小手枪',
+    baseDamage: 28,
+    fireRate: 2.2,
+    range: 520,
+    bulletSpeed: 520,
+    bulletRadius: 4,
+    spreadDeg: 0,
+  },
+  smg: {
+    gunId: 'smg',
+    tier: 2,
+    title: '连射机关枪',
+    baseDamage: 14,
+    fireRate: 6.5,
+    range: 560,
+    bulletSpeed: 600,
+    bulletRadius: 3,
+    spreadDeg: 5,
+  },
+  grenadeMg: {
+    gunId: 'grenade-mg',
+    tier: 3,
+    title: '榴弹机关枪',
+    baseDamage: 12,
+    fireRate: 7.5,
+    range: 580,
+    bulletSpeed: 620,
+    bulletRadius: 3,
+    spreadDeg: 6,
+    grenade: {
+      cooldownMs: 2800,
+      damage: 75,
+      explosionRadius: 95,
+      range: 520,
+      projectileSpeed: 520,
+    },
+  },
+  cannon: {
+    gunId: 'cannon',
+    tier: 4,
+    title: '大炮',
+    baseDamage: 95,
+    fireRate: 1.2,
+    range: 720,
+    bulletSpeed: 480,
+    bulletRadius: 7,
+    spreadDeg: 1,
+    explosionRadius: 120,
+  },
+} as const
+
 // ==================== 敌人与Boss数值 ====================
 
 // 普通怪物：第 1 关 200 起步，10 关内控制在约 3~4 倍，避免纯“堆肉”
@@ -42,6 +139,63 @@ export const LEVEL_SPAWN_INTERVAL_DECAY = 50
 export const LEVEL_ENEMY_SPEED_BASE = 1.0
 export const LEVEL_ENEMY_SPEED_GROWTH = 0.06
 export const LEVEL_ENEMY_SPEED_MAX = 3.5
+
+// ==================== 普通怪物攻击（随关卡提升） ====================
+
+/** 三类怪物占比（按关卡渐变；数值为权重，最终由 SpawnSystem 抽样） */
+export function getEnemyTypeSpawnWeights(level: number): {
+  melee: number
+  shooter: number
+  thrower: number
+} {
+  const t = clamp((level - 1) / (TOTAL_LEVELS - 1), 0, 1)
+  // 前期近战多、后期远程/投掷增多
+  const melee = Math.round(55 - 15 * t)
+  const shooter = Math.round(25 + 10 * t)
+  const thrower = Math.round(20 + 5 * t)
+  return { melee, shooter, thrower }
+}
+
+// 近战怪：改为“接触不自爆”，而是按冷却对玩家造成伤害
+export function getMeleeEnemyAttackIntervalMs(level: number): number {
+  return Math.max(350, 900 - 25 * (level - 1))
+}
+
+export function getMeleeEnemyAttackDamage(level: number): number {
+  return Math.round(8 + 0.7 * level)
+}
+
+// 射击怪：保持距离并定时射击
+export function getShooterEnemyShootIntervalMs(level: number): number {
+  return Math.max(650, 1600 - 50 * (level - 1))
+}
+
+export function getShooterEnemyBulletSpeed(level: number): number {
+  return Math.min(420, 210 + 10 * (level - 1))
+}
+
+export function getShooterEnemyBulletDamage(level: number): number {
+  return Math.round(6 + 0.6 * level)
+}
+
+// 丢大便怪：投掷落点范围伤害（可选残留区）
+export function getThrowerEnemyThrowIntervalMs(level: number): number {
+  return Math.max(900, 2400 - 70 * (level - 1))
+}
+
+export const THROWER_POOP_IMPACT_RADIUS = 90
+
+export function getThrowerEnemyImpactDamage(level: number): number {
+  return Math.round(10 + 0.8 * level)
+}
+
+/** 残留区（可选）：低频 tick，控制性能 */
+export const POOP_FIELD_DURATION_MS = 1100
+export const POOP_FIELD_TICK_MS = 300
+
+export function getPoopFieldTickDamage(level: number): number {
+  return Math.round(2 + 0.2 * level)
+}
 
 export function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))

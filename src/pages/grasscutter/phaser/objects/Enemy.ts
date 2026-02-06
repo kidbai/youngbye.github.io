@@ -12,6 +12,8 @@ const ENEMY_SPEECHES = [
 ]
 const SPEECH_DURATION = 2000
 
+export type EnemyType = 'melee' | 'shooter' | 'thrower'
+
 export interface EnemyConfig {
   x: number
   y: number
@@ -20,6 +22,7 @@ export interface EnemyConfig {
   maxHp: number
   speed: number
   imageKey: string
+  enemyType: EnemyType
 }
 
 const DEFAULT_CONFIG: Omit<EnemyConfig, 'x' | 'y'> = {
@@ -28,6 +31,7 @@ const DEFAULT_CONFIG: Omit<EnemyConfig, 'x' | 'y'> = {
   maxHp: 100,
   speed: 80,
   imageKey: 'minion',
+  enemyType: 'melee',
 }
 
 export class Enemy extends Phaser.GameObjects.Container {
@@ -39,6 +43,7 @@ export class Enemy extends Phaser.GameObjects.Container {
   public speech: string = ''
   public speechTimer: number = 0
   public imageKey: string
+  public enemyType: EnemyType
 
   private avatar: Phaser.GameObjects.Image
   private speechText: Phaser.GameObjects.Text | null = null
@@ -54,6 +59,7 @@ export class Enemy extends Phaser.GameObjects.Container {
     this.speed = cfg.speed
     this.radius = cfg.radius
     this.imageKey = cfg.imageKey
+    this.enemyType = cfg.enemyType
 
     // 头像（使用圆形裁剪的纹理）
     this.avatar = scene.add.image(0, 0, `${cfg.imageKey}-circle`)

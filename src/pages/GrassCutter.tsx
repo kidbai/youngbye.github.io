@@ -20,7 +20,7 @@ import {
   emitSkipLevel,
   emitKillAll,
 } from './grasscutter/phaser/events'
-import type { GameSnapshot, UpgradeType, MoveVector } from './grasscutter/phaser/types'
+import type { GameSnapshot, UpgradeOption, MoveVector, GunKey } from './grasscutter/phaser/types'
 import {
   ENEMIES_PER_LEVEL,
   getLevelConfig,
@@ -30,9 +30,6 @@ import {
   INITIAL_WEAPON_DAMAGE,
   INITIAL_WEAPON_RANGE,
   INITIAL_WEAPON_ROTATION_SPEED,
-  UPGRADE_DAMAGE_INCREASE,
-  UPGRADE_RANGE_INCREASE,
-  UPGRADE_SPEED_INCREASE,
 } from './grasscutter/balance'
 
 // ==================== 常量 ====================
@@ -63,7 +60,17 @@ function GrassCutter() {
   const [weaponRange, setWeaponRange] = useState(INITIAL_WEAPON_RANGE)
   const [weaponRotationSpeed, setWeaponRotationSpeed] = useState(INITIAL_WEAPON_ROTATION_SPEED)
   const [weaponCount, setWeaponCount] = useState(1)
+
+  const [gunTitle, setGunTitle] = useState('')
+  const [gunKey, setGunKey] = useState<GunKey>('pistol')
+  const [gunDamageMul, setGunDamageMul] = useState(1)
+  const [gunFireRateMul, setGunFireRateMul] = useState(1)
+  const [gunRangeMul, setGunRangeMul] = useState(1)
+  const [evolveMisses, setEvolveMisses] = useState(0)
   const [highScore, setHighScore] = useState(0)
+
+  // 升级卡池（Phaser 下发的 3 选 1）
+  const [upgradeOptions, setUpgradeOptions] = useState<UpgradeOption[]>([])
 
   // UI 状态
   const [showDevMenu, setShowDevMenu] = useState(false)
@@ -102,9 +109,20 @@ function GrassCutter() {
       setWeaponRange(snapshot.weaponRange)
       setWeaponRotationSpeed(snapshot.weaponRotationSpeed)
       setWeaponCount(snapshot.weaponCount)
+      setGunTitle(snapshot.gunTitle)
+      setGunKey(snapshot.gunKey)
+      setGunDamageMul(snapshot.gunDamageMul)
+      setGunFireRateMul(snapshot.gunFireRateMul)
+      setGunRangeMul(snapshot.gunRangeMul)
+      setEvolveMisses(snapshot.evolveMisses)
+    }
+
+    const handleNeedUpgrade = (options: UpgradeOption[]) => {
+      setUpgradeOptions(options)
     }
 
     eventBus.on(Events.STATE_UPDATE, handleStateUpdate)
+    eventBus.on<UpgradeOption[]>(Events.NEED_UPGRADE, handleNeedUpgrade)
 
     // 加载存档高分
     try {
@@ -119,6 +137,7 @@ function GrassCutter() {
 
     return () => {
       eventBus.off(Events.STATE_UPDATE, handleStateUpdate)
+      eventBus.off(Events.NEED_UPGRADE, handleNeedUpgrade)
       eventBus.clear()
       destroyGame()
     }
@@ -304,6 +323,14 @@ function GrassCutter() {
       const saveData = {
         currentLevel: level,
         highScore: Math.max(highScore, score),
+
+        gunKey,
+        gunDamageMul,
+        gunFireRateMul,
+        gunRangeMul,
+        evolveMisses,
+
+        // 旧字段：暂留
         weaponDamage,
         weaponRange,
         weaponRotationSpeed,
@@ -315,10 +342,10 @@ function GrassCutter() {
       console.warn('[GrassCutter] Failed to save:', e)
     }
     navigate('/')
-  }, [level, highScore, score, weaponDamage, weaponRange, weaponRotationSpeed, weaponCount, playerLevel, navigate])
+  }, [level, highScore, score, gunKey, gunDamageMul, gunFireRateMul, gunRangeMul, evolveMisses, weaponDamage, weaponRange, weaponRotationSpeed, weaponCount, playerLevel, navigate])
 
-  const handleUpgrade = useCallback((type: UpgradeType) => {
-    emitApplyUpgrade(type)
+  const handleUpgrade = useCallback((option: UpgradeOption) => {
+    emitApplyUpgrade(option)
   }, [])
 
   const handleRetry = useCallback(() => {
@@ -334,12 +361,10 @@ function GrassCutter() {
     setShowDevMenu(false)
   }, [level])
 
-  const handleMaxWeapons = useCallback(() => {
-    // 连续应用武器升级直到满
-    for (let i = weaponCount; i < MAX_WEAPONS; i++) {
-      emitApplyUpgrade('weapon')
-    }
-  }, [weaponCount])
+  const handleKillAllEnemies = useCallback(() => {
+    emitKillAll()
+    setShowDevMenu(false)
+  }, [])
 
   // ==================== 渲染 ====================
 
@@ -403,13 +428,13 @@ function GrassCutter() {
           </div>
           <div className={styles.devMenuSection}>
             <span className={styles.devMenuLabel}>快捷操作</span>
-            <button className={styles.devActionBtn} onClick={handleMaxWeapons}>
-              🚀 满级武器
+            <button className={styles.devActionBtn} onClick={handleKillAllEnemies}>
+              💥 清屏（击杀全部敌人）
             </button>
           </div>
           <div className={styles.devMenuInfo}>
             <span>当前: 第{level}关 · Lv.{playerLevel}</span>
-            <span>武器: {weaponCount}把</span>
+            <span>枪械: {gunTitle || '未知'}</span>
           </div>
         </div>
       )}
@@ -438,6 +463,10 @@ function GrassCutter() {
             <div className={styles.statItem}>
               <span className={styles.statLabel}>积分</span>
               <span className={styles.statValue}>{score}</span>
+            </div>
+            <div className={styles.statItem}>
+              <span className={styles.statLabel}>枪械</span>
+              <span className={styles.statValue}>{gunTitle || '-'}</span>
             </div>
           </div>
         </div>
@@ -493,49 +522,36 @@ function GrassCutter() {
             <h2 className={styles.modalTitle}>选择升级</h2>
             <p className={styles.modalSubtitle}>等级 {playerLevel} → {playerLevel + 1}</p>
             <div className={styles.upgradeOptions}>
-              <button 
-                className={styles.upgradeBtn}
-                onClick={() => handleUpgrade('damage')}
-              >
-                <span className={styles.upgradeIcon}>⚔️</span>
-                <span className={styles.upgradeName}>攻击力</span>
-                <span className={styles.upgradeValue}>
-                  {weaponDamage} → {weaponDamage + UPGRADE_DAMAGE_INCREASE}
-                </span>
-              </button>
-              <button 
-                className={styles.upgradeBtn}
-                onClick={() => handleUpgrade('range')}
-              >
-                <span className={styles.upgradeIcon}>📏</span>
-                <span className={styles.upgradeName}>攻击范围</span>
-                <span className={styles.upgradeValue}>
-                  {weaponRange} → {weaponRange + UPGRADE_RANGE_INCREASE}
-                </span>
-              </button>
-              <button 
-                className={styles.upgradeBtn}
-                onClick={() => handleUpgrade('speed')}
-              >
-                <span className={styles.upgradeIcon}>⚡</span>
-                <span className={styles.upgradeName}>攻击速度</span>
-                <span className={styles.upgradeValue}>
-                  {weaponRotationSpeed.toFixed(1)} → {(weaponRotationSpeed + UPGRADE_SPEED_INCREASE).toFixed(1)}
-                </span>
-              </button>
-              <button 
-                className={styles.upgradeBtn}
-                onClick={() => handleUpgrade('weapon')}
-                disabled={weaponCount >= MAX_WEAPONS}
-              >
-                <span className={styles.upgradeIcon}>🗡️</span>
-                <span className={styles.upgradeName}>增加武器</span>
-                <span className={styles.upgradeValue}>
-                  {weaponCount >= MAX_WEAPONS 
-                    ? `已满 ${MAX_WEAPONS}` 
-                    : `${weaponCount} → ${weaponCount + 1}`}
-                </span>
-              </button>
+              {upgradeOptions.length === 0 ? (
+                <div className={styles.upgradeLoading}>抽取升级中...</div>
+              ) : (
+                upgradeOptions.map((opt) => {
+                  const rarityText = opt.rarity === 'common' ? '常见' : opt.rarity === 'rare' ? '稀有' : '史诗'
+                  const icon =
+                    opt.kind === 'damageMul'
+                      ? '⚔️'
+                      : opt.kind === 'fireRateMul'
+                        ? '⚡'
+                        : opt.kind === 'rangeMul'
+                          ? '📏'
+                          : '🧬'
+
+                  return (
+                    <button
+                      key={opt.id}
+                      className={`${styles.upgradeCard} ${styles[`rarity_${opt.rarity}`]}`}
+                      onClick={() => handleUpgrade(opt)}
+                    >
+                      <div className={styles.upgradeCardTop}>
+                        <span className={styles.upgradeIcon}>{icon}</span>
+                        <span className={styles.upgradeName}>{opt.title}</span>
+                        <span className={styles.rarityTag}>{rarityText}</span>
+                      </div>
+                      <div className={styles.upgradeDesc}>{opt.desc}</div>
+                    </button>
+                  )
+                })
+              )}
             </div>
           </div>
         </div>

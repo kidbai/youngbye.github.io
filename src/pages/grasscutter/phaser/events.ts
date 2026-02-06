@@ -2,7 +2,7 @@
  * GrassCutter Phaser - 事件总线 (React ↔ Phaser)
  */
 
-import type { GameSnapshot, MoveVector, UpgradeType } from './types'
+import type { GameSnapshot, MoveVector, UpgradeOption } from './types'
 
 /** 回调签名 */
 type Callback<T> = (payload: T) => void
@@ -69,14 +69,14 @@ export const eventBus = new EventBus()
 export const emitStateUpdate = (snapshot: GameSnapshot) =>
   eventBus.emit(Events.STATE_UPDATE, snapshot)
 
-export const emitNeedUpgrade = () => eventBus.emit(Events.NEED_UPGRADE, undefined)
+export const emitNeedUpgrade = (options: UpgradeOption[]) => eventBus.emit(Events.NEED_UPGRADE, options)
 export const emitPlayerDead = () => eventBus.emit(Events.PLAYER_DEAD, undefined)
 export const emitVictory = () => eventBus.emit(Events.VICTORY, undefined)
 
 export const emitMove = (v: MoveVector) => eventBus.emit(Events.MOVE, v)
 export const emitPause = () => eventBus.emit(Events.PAUSE, undefined)
 export const emitResume = () => eventBus.emit(Events.RESUME, undefined)
-export const emitApplyUpgrade = (type: UpgradeType) => eventBus.emit(Events.APPLY_UPGRADE, type)
+export const emitApplyUpgrade = (option: UpgradeOption) => eventBus.emit(Events.APPLY_UPGRADE, option)
 export const emitRestart = () => eventBus.emit(Events.RESTART, undefined)
 export const emitExit = () => eventBus.emit(Events.EXIT, undefined)
 export const emitSkipLevel = () => eventBus.emit(Events.SKIP_LEVEL, undefined)
