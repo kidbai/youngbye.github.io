@@ -16,7 +16,7 @@ import { PlayerExplosiveProjectile } from './PlayerExplosiveProjectile'
 import { playTankCannonSfx } from '../systems/GunSfx'
 
 export class TankPet extends Phaser.GameObjects.Container {
-  private body!: Phaser.GameObjects.Image
+  private hull!: Phaser.GameObjects.Image
   private turret!: Phaser.GameObjects.Image
   private cooldownMs: number = 0
   private projectilesGroup: Phaser.Physics.Arcade.Group
@@ -38,9 +38,9 @@ export class TankPet extends Phaser.GameObjects.Container {
     this.projectilesGroup = projectilesGroup
 
     // 车身（移动端等比缩小）
-    this.body = scene.add.image(0, 0, 'px-tank-body')
-    this.body.setDisplaySize(scaleSize(40), scaleSize(28))
-    this.add(this.body)
+    this.hull = scene.add.image(0, 0, 'px-tank-body')
+    this.hull.setDisplaySize(scaleSize(40), scaleSize(28))
+    this.add(this.hull)
 
     // 炮管（在车身之上）
     this.turret = scene.add.image(scaleSize(4), 0, 'px-tank-turret')
@@ -49,7 +49,8 @@ export class TankPet extends Phaser.GameObjects.Container {
     this.add(this.turret)
 
     this.setDepth(45)
-    scene.add.existing(this)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    scene.add.existing(this as any)
   }
 
   /** 设置最大索敌距离（每帧由 MainScene 传入） */
@@ -84,7 +85,7 @@ export class TankPet extends Phaser.GameObjects.Container {
       this.turret.setRotation(this.turretAngle)
 
       // 车身也朝向大致方向（水平翻转）
-      this.body.setFlipX(dx < 0)
+      this.hull.setFlipX(dx < 0)
     }
 
     // CD 冷却
