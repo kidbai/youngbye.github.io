@@ -3,6 +3,7 @@
  */
 
 import Phaser from 'phaser'
+import { scaleSize, scaleSpeed } from '../../balance'
 
 // 蛋卷大魔王的骚话
 const BOSS_SPEECHES = [
@@ -33,12 +34,12 @@ export interface BossConfig {
 }
 
 const DEFAULT_CONFIG: Omit<BossConfig, 'x' | 'y' | 'hp' | 'maxHp'> = {
-  radius: 50,
-  speed: 72, // 1.2 * 60 (原逻辑是 speed * dt，这里转成像素/秒)
+  radius: scaleSize(50),
+  speed: scaleSpeed(72),
   shootInterval: 1500,
-  bulletSpeed: 240, // 4 * 60
+  bulletSpeed: scaleSpeed(240),
   bulletDamage: 15,
-  bulletRadius: 8,
+  bulletRadius: Math.max(4, scaleSize(8)),
 }
 
 export class Boss extends Phaser.GameObjects.Container {
@@ -120,8 +121,8 @@ export class Boss extends Phaser.GameObjects.Container {
     const dist = Math.sqrt(dx * dx + dy * dy)
 
     const body = this.body as Phaser.Physics.Arcade.Body
-    const minDist = 200 // 保持最小距离
-    const maxDist = 400 // 追踪最大距离
+    const minDist = scaleSize(200) // 保持最小距离
+    const maxDist = scaleSize(400) // 追踪最大距离
 
     if (dist > maxDist) {
       // 太远，追过去

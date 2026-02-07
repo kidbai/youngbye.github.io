@@ -4,13 +4,24 @@
 
 import Phaser from 'phaser'
 import { Enemy, type EnemyType } from '../objects/Enemy'
-import { getLevelConfig, getEnemyTypeSpawnWeights, WORLD_WIDTH, WORLD_HEIGHT, ENEMIES_PER_LEVEL } from '../../balance'
+import {
+  getLevelConfig,
+  getEnemyTypeSpawnWeights,
+  WORLD_WIDTH,
+  WORLD_HEIGHT,
+  ENEMIES_PER_LEVEL,
+  BIG_DANJUAN_HP_MULTIPLIER,
+  BIG_DANJUAN_SIZE_MULTIPLIER,
+  BIG_DANJUAN_SPEED_MULTIPLIER,
+  scaleSize,
+} from '../../balance'
 import { TILE_SIZE } from '../maps/OverworldMap'
 
 const ENEMY_TYPE_IMAGE: Record<EnemyType, string> = {
   shooter: 'minion',
   thrower: 'minion2',
   melee: 'monster',
+  bigDanjuan: 'big-danjuan',
 }
 
 export class SpawnSystem {
@@ -143,12 +154,25 @@ export class SpawnSystem {
     const enemyType = this.pickEnemyType()
     const imageKey = ENEMY_TYPE_IMAGE[enemyType]
 
+    // 大蛋卷：血量 2.5 倍、头像大 1.5 倍、速度快 1.25 倍
+    const isBigDanjuan = enemyType === 'bigDanjuan'
+    const hp = isBigDanjuan
+      ? Math.round(config.enemyHp * BIG_DANJUAN_HP_MULTIPLIER)
+      : config.enemyHp
+    const radius = isBigDanjuan
+      ? scaleSize(Math.round(25 * BIG_DANJUAN_SIZE_MULTIPLIER))
+      : undefined
+    const speed = isBigDanjuan
+      ? config.enemySpeed * 60 * BIG_DANJUAN_SPEED_MULTIPLIER
+      : config.enemySpeed * 60
+
     const enemy = new Enemy(this.scene, spawn.x, spawn.y, {
-      hp: config.enemyHp,
-      maxHp: config.enemyHp,
-      speed: config.enemySpeed * 60, // 转换为像素/秒
+      hp,
+      maxHp: hp,
+      speed,
       imageKey,
       enemyType,
+      ...(radius !== undefined ? { radius } : {}),
     })
 
     this.enemies.add(enemy)
@@ -156,11 +180,12 @@ export class SpawnSystem {
 
   private pickEnemyType(): EnemyType {
     const w = getEnemyTypeSpawnWeights(this.level)
-    const total = w.melee + w.shooter + w.thrower
+    const total = w.melee + w.shooter + w.thrower + w.bigDanjuan
     const r = Phaser.Math.Between(1, total)
 
-    if (r <= w.melee) return 'melee'
-    if (r <= w.melee + w.shooter) return 'shooter'
+    if (r <= w.bigDanjuan) return 'bigDanjuan'
+    if (r <= w.bigDanjuan + w.melee) return 'melee'
+    if (r <= w.bigDanjuan + w.melee + w.shooter) return 'shooter'
     return 'thrower'
   }
 

@@ -3,13 +3,14 @@
  */
 
 import Phaser from 'phaser'
+import { scaleSize } from '../../balance'
 
-/** 武器纹理 key 与显示尺寸映射 */
+/** 武器纹理 key 与显示尺寸映射（移动端等比缩小） */
 const GUN_DISPLAY: Record<string, { key: string; w: number; h: number }> = {
-  pistol:    { key: 'px-gun-pistol',    w: 28, h: 18 },
-  smg:       { key: 'px-gun-smg',       w: 36, h: 18 },
-  grenadeMg: { key: 'px-gun-grenadeMg', w: 40, h: 20 },
-  cannon:    { key: 'px-gun-cannon',    w: 46, h: 24 },
+  pistol:    { key: 'px-gun-pistol',    w: scaleSize(28), h: scaleSize(18) },
+  smg:       { key: 'px-gun-smg',       w: scaleSize(36), h: scaleSize(18) },
+  grenadeMg: { key: 'px-gun-grenadeMg', w: scaleSize(40), h: scaleSize(20) },
+  cannon:    { key: 'px-gun-cannon',    w: scaleSize(46), h: scaleSize(24) },
 }
 
 export interface PlayerConfig {
@@ -24,11 +25,14 @@ export interface PlayerConfig {
 const DEFAULT_CONFIG: PlayerConfig = {
   x: 0,
   y: 0,
-  radius: 30,
+  radius: scaleSize(30),
   hp: 100,
   maxHp: 100,
   speed: 300,
 }
+
+/** 双持枪口垂直偏移 */
+const DUAL_SPREAD = scaleSize(12)
 
 export class Player extends Phaser.GameObjects.Container {
   public hp: number
@@ -133,7 +137,7 @@ export class Player extends Phaser.GameObjects.Container {
     // 双持副武器：与主武器同方向，但沿垂直方向偏移（上下分离）
     if (this.gunSprite2) {
       const perpAngle = angle + Math.PI / 2 // 垂直于射击方向
-      const spread = 12 // 两把枪之间的垂直偏移
+      const spread = DUAL_SPREAD
       // 主枪向一侧偏移
       this.gunSprite.setPosition(
         Math.cos(angle) * offset + Math.cos(perpAngle) * spread,
@@ -155,7 +159,7 @@ export class Player extends Phaser.GameObjects.Container {
     const muzzleDist = (this.radius + 5) + info.w * 0.85
     if (this._dualWield) {
       const perpAngle = this.gunAngle + Math.PI / 2
-      const spread = 12
+      const spread = DUAL_SPREAD
       return {
         x: this.x + Math.cos(this.gunAngle) * muzzleDist + Math.cos(perpAngle) * spread,
         y: this.y + Math.sin(this.gunAngle) * muzzleDist + Math.sin(perpAngle) * spread,
@@ -172,7 +176,7 @@ export class Player extends Phaser.GameObjects.Container {
     const info = GUN_DISPLAY[this.currentGunId] ?? GUN_DISPLAY.pistol
     const muzzleDist = (this.radius + 5) + info.w * 0.85
     const perpAngle = this.gunAngle + Math.PI / 2
-    const spread = 12
+    const spread = DUAL_SPREAD
     return {
       x: this.x + Math.cos(this.gunAngle) * muzzleDist - Math.cos(perpAngle) * spread,
       y: this.y + Math.sin(this.gunAngle) * muzzleDist - Math.sin(perpAngle) * spread,

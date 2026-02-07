@@ -8,6 +8,7 @@ import {
   TANK_PET_COOLDOWN_MS,
   TANK_PET_FOLLOW_OFFSET,
   TANK_PET_FOLLOW_LERP,
+  scaleSize,
 } from '../../balance'
 import { Enemy } from './Enemy'
 import { Boss } from './Boss'
@@ -19,6 +20,9 @@ export class TankPet extends Phaser.GameObjects.Container {
   private turret!: Phaser.GameObjects.Image
   private cooldownMs: number = 0
   private projectilesGroup: Phaser.Physics.Arcade.Group
+
+  /** 最大索敌距离平方（由外部注入，基于视口计算） */
+  private maxTargetRange2: number = Number.POSITIVE_INFINITY
 
   /** 当前炮管瞄准角度 */
   private turretAngle: number = 0
@@ -33,19 +37,24 @@ export class TankPet extends Phaser.GameObjects.Container {
 
     this.projectilesGroup = projectilesGroup
 
-    // 车身
+    // 车身（移动端等比缩小）
     this.body = scene.add.image(0, 0, 'px-tank-body')
-    this.body.setDisplaySize(40, 28)
+    this.body.setDisplaySize(scaleSize(40), scaleSize(28))
     this.add(this.body)
 
     // 炮管（在车身之上）
-    this.turret = scene.add.image(4, 0, 'px-tank-turret')
-    this.turret.setDisplaySize(30, 12)
+    this.turret = scene.add.image(scaleSize(4), 0, 'px-tank-turret')
+    this.turret.setDisplaySize(scaleSize(30), scaleSize(12))
     this.turret.setOrigin(0.25, 0.5)
     this.add(this.turret)
 
     this.setDepth(45)
     scene.add.existing(this)
+  }
+
+  /** 设置最大索敌距离（每帧由 MainScene 传入） */
+  setMaxTargetRange(range: number): void {
+    this.maxTargetRange2 = range * range
   }
 
   /**
@@ -93,7 +102,7 @@ export class TankPet extends Phaser.GameObjects.Container {
     boss: Boss | null,
   ): { x: number; y: number } | null {
     let best: { x: number; y: number } | null = null
-    let bestDist2 = Number.POSITIVE_INFINITY
+    let bestDist2 = this.maxTargetRange2
 
     enemies.getChildren().forEach((obj) => {
       const enemy = obj as Enemy
@@ -130,8 +139,8 @@ export class TankPet extends Phaser.GameObjects.Container {
     const dirX = dx / dist
     const dirY = dy / dist
 
-    // 炮弹从炮管口发射
-    const muzzleOffset = 20
+    // 炮弹从炮管口发射（移动端缩小偏移）
+    const muzzleOffset = scaleSize(20)
     const startX = this.x + Math.cos(this.turretAngle) * muzzleOffset
     const startY = this.y + Math.sin(this.turretAngle) * muzzleOffset
 

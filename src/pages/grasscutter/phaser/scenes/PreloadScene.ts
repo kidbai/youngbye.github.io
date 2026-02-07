@@ -8,6 +8,7 @@ import Phaser from 'phaser'
 import minionImg from '../../../../assets/minion.png'
 import minion2Img from '../../../../assets/minion2.png'
 import monsterImg from '../../../../assets/monster.png'
+import bigDanjuanImg from '../../../../assets/big-danjuan.png'
 import yuanxiaoImg from '../../../../assets/yuanxiao.png'
 import yuanxiaoShotedImg from '../../../../assets/yuanxiao-shoted.png'
 import bossImg from '../../../../assets/boss.png'
@@ -38,6 +39,7 @@ export class PreloadScene extends Phaser.Scene {
     this.load.image('minion', minionImg)
     this.load.image('minion2', minion2Img)
     this.load.image('monster', monsterImg)
+    this.load.image('big-danjuan', bigDanjuanImg)
     this.load.image('yuanxiao', yuanxiaoImg)
     this.load.image('yuanxiao-shoted', yuanxiaoShotedImg)
     this.load.image('boss', bossImg)
@@ -63,7 +65,7 @@ export class PreloadScene extends Phaser.Scene {
 
   /** 生成带圆形裁剪的派生纹理（用于头像显示，保持原图比例，中心裁剪，高清支持） */
   private generateCircleTextures(): void {
-    const keys = ['minion', 'minion2', 'monster', 'yuanxiao', 'yuanxiao-shoted', 'boss', 'boss-shot']
+    const keys = ['minion', 'minion2', 'monster', 'big-danjuan', 'yuanxiao', 'yuanxiao-shoted', 'boss', 'boss-shot']
 
     // 目标纹理尺寸
     // 像素风：刻意降低分辨率并关闭平滑缩放，让头像也呈现像素采样效果

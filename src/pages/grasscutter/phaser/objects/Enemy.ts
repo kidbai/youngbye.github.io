@@ -3,6 +3,7 @@
  */
 
 import Phaser from 'phaser'
+import { scaleSize } from '../../balance'
 
 // 小蛋卷的随机话术
 const ENEMY_SPEECHES = [
@@ -12,13 +13,14 @@ const ENEMY_SPEECHES = [
 ]
 const SPEECH_DURATION = 2000
 
-export type EnemyType = 'melee' | 'shooter' | 'thrower'
+export type EnemyType = 'melee' | 'shooter' | 'thrower' | 'bigDanjuan'
 
-/** 敌人武器纹理映射 */
+/** 敌人武器纹理映射（移动端等比缩小） */
 const ENEMY_WEAPON_INFO: Record<EnemyType, { key: string; w: number; h: number }> = {
-  melee:   { key: 'px-bow', w: 24, h: 22 },
-  shooter: { key: 'px-gun-enemy', w: 26, h: 14 },
-  thrower: { key: 'px-toilet-roll', w: 22, h: 18 },
+  melee:      { key: 'px-bow', w: scaleSize(24), h: scaleSize(22) },
+  shooter:    { key: 'px-gun-enemy', w: scaleSize(26), h: scaleSize(14) },
+  thrower:    { key: 'px-toilet-roll', w: scaleSize(22), h: scaleSize(18) },
+  bigDanjuan: { key: 'px-bow', w: scaleSize(30), h: scaleSize(28) },
 }
 
 export interface EnemyConfig {
@@ -33,7 +35,7 @@ export interface EnemyConfig {
 }
 
 const DEFAULT_CONFIG: Omit<EnemyConfig, 'x' | 'y'> = {
-  radius: 25,
+  radius: scaleSize(25),
   hp: 100,
   maxHp: 100,
   speed: 80,

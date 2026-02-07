@@ -37,10 +37,13 @@ import {
   POOP_FIELD_DURATION_MS,
   POOP_FIELD_TICK_MS,
   getPoopFieldTickDamage,
-  SHOOTER_FIRE_RANGE,
-  THROWER_FIRE_RANGE,
   ENEMY_BULLET_MAX_RANGE,
   PLAYER_SPEED,
+  getViewportFireRange,
+  scaleSize,
+  ENEMY_CHASE_SPEED_BOOST,
+  getMeleeEnemyAttackIntervalMs,
+  getMeleeEnemyAttackDamage,
 } from '../../balance'
 import { Player } from '../objects/Player'
 import { Enemy } from '../objects/Enemy'
@@ -75,7 +78,7 @@ const PLAYER_HIT_SPEECHES = [
 /** 配置常量 */
 const BOSS_TOUCH_DAMAGE = 25
 const BOSS_TOUCH_COOLDOWN = 650
-const BOSS_KNOCKBACK_DISTANCE = 40
+const BOSS_KNOCKBACK_DISTANCE = scaleSize(40)
 
 export class MainScene extends Phaser.Scene {
   // 玩家
@@ -337,7 +340,12 @@ export class MainScene extends Phaser.Scene {
     const worldW = this.registry.get('worldWidth') || WORLD_WIDTH
     const worldH = this.registry.get('worldHeight') || WORLD_HEIGHT
 
+    // 计算视口攻击范围（敌人射击/玩家索敌共用）
+    const cam = this.cameras.main
+    const viewportRange = getViewportFireRange(cam.width, cam.height)
+
     this.gunSystem.setPlayerPosition(this.player.x, this.player.y)
+    this.gunSystem.setMaxTargetRange(viewportRange)
     this.gunSystem.update(delta, worldW, worldH)
     this.syncGunStatsToLegacyFields()
 
@@ -346,6 +354,7 @@ export class MainScene extends Phaser.Scene {
 
     // 更新坦克宠物
     if (this.tankPet) {
+      this.tankPet.setMaxTargetRange(viewportRange)
       this.tankPet.update(delta, this.player.x, this.player.y, this.enemies, this.boss)
     }
 
@@ -546,10 +555,15 @@ export class MainScene extends Phaser.Scene {
         const nx = dx / dist
         const ny = dy / dist
 
-        if (enemy.enemyType === 'melee') {
+        if (enemy.enemyType === 'bigDanjuan') {
+          // 大蛋卷：纯近战冲锋，直奔玩家，聚集速度更快
+          const chaseSpeed = enemy.speed * ENEMY_CHASE_SPEED_BOOST
+          vx = nx * chaseSpeed
+          vy = ny * chaseSpeed
+        } else if (enemy.enemyType === 'melee') {
           // 弓箭手：保持距离 + 横移（比 shooter 稍近）
-          const minDist = 160
-          const maxDist = 320
+          const minDist = scaleSize(160)
+          const maxDist = scaleSize(320)
 
           if (dist > maxDist) {
             vx = nx * enemy.speed
@@ -566,8 +580,8 @@ export class MainScene extends Phaser.Scene {
           }
         } else {
           // shooter/thrower：保持距离
-          const minDist = enemy.enemyType === 'shooter' ? 220 : 260
-          const maxDist = enemy.enemyType === 'shooter' ? 380 : 420
+          const minDist = enemy.enemyType === 'shooter' ? scaleSize(220) : scaleSize(260)
+          const maxDist = enemy.enemyType === 'shooter' ? scaleSize(380) : scaleSize(420)
 
           if (dist > maxDist) {
             vx = nx * enemy.speed
@@ -616,15 +630,20 @@ export class MainScene extends Phaser.Scene {
 
       enemy.updateEnemy(delta)
 
-      // 接触攻击（所有类型近身都有微量伤害）
+      // 接触攻击（所有类型近身都有微量伤害；大蛋卷伤害更高、间隔更短）
       const contactKey = 'contactCd'
       let contactCd = (enemy.getData(contactKey) as number) ?? 0
       contactCd = Math.max(0, contactCd - delta)
 
       const contactRange = this.player.radius + enemy.radius
       if (dist < contactRange && contactCd <= 0) {
-        const dmg = Math.round(3 + 0.3 * level)
-        const interval = 950
+        const isBigDanjuan = enemy.enemyType === 'bigDanjuan'
+        const dmg = isBigDanjuan
+          ? getMeleeEnemyAttackDamage(level)
+          : Math.round(3 + 0.3 * level)
+        const interval = isBigDanjuan
+          ? getMeleeEnemyAttackIntervalMs(level)
+          : 950
 
         this.player.takeDamage(dmg)
         this.player.showSpeech(PLAYER_HIT_SPEECHES[Math.floor(Math.random() * PLAYER_HIT_SPEECHES.length)])
@@ -665,8 +684,10 @@ export class MainScene extends Phaser.Scene {
       return
     }
 
-    // 距离门槛：玩家必须靠近到 SHOOTER_FIRE_RANGE 范围内才允许发射
-    if (dist > SHOOTER_FIRE_RANGE) {
+    // 距离门槛：使用视口范围，只有屏幕可见范围内的敌人才能射击
+    const cam = this.cameras.main
+    const fireRange = getViewportFireRange(cam.width, cam.height)
+    if (dist > fireRange) {
       enemy.setData(key, 100) // 距离过远时轻缓 CD，避免高频检测
       return
     }
@@ -694,7 +715,7 @@ export class MainScene extends Phaser.Scene {
     // 从武器枪口/箭尖发射
     const muzzle = enemy.getWeaponMuzzleWorld()
 
-    const bullet = new EnemyBullet(this, muzzle.x, muzzle.y, 6, dirX, dirY, speed, damage, ENEMY_BULLET_MAX_RANGE, textureKey, tint)
+    const bullet = new EnemyBullet(this, muzzle.x, muzzle.y, Math.max(3, scaleSize(6)), dirX, dirY, speed, damage, ENEMY_BULLET_MAX_RANGE, textureKey, tint)
     this.enemyBullets.add(bullet)
     bullet.initPhysics()
 
@@ -711,8 +732,10 @@ export class MainScene extends Phaser.Scene {
       return
     }
 
-    // 距离门槛：玩家必须进入 THROWER_FIRE_RANGE 范围内才允许投掷
-    if (dist > THROWER_FIRE_RANGE) {
+    // 距离门槛：使用视口范围，只有屏幕可见范围内的敌人才能投掷
+    const cam = this.cameras.main
+    const fireRange = getViewportFireRange(cam.width, cam.height)
+    if (dist > fireRange) {
       enemy.setData(key, 100)
       return
     }
@@ -732,7 +755,7 @@ export class MainScene extends Phaser.Scene {
       targetX: this.player.x,
       targetY: this.player.y,
       speed,
-      radius: 12,
+      radius: scaleSize(12),
       impactRadius: THROWER_POOP_IMPACT_RADIUS,
       impactDamage: getThrowerEnemyImpactDamage(this.level),
       fieldDurationMs: POOP_FIELD_DURATION_MS,
@@ -1124,7 +1147,8 @@ export class MainScene extends Phaser.Scene {
     this.aoeFields.clear(true, true)
 
     // 在玩家上方生成 Boss（确保不出生在阻挡地形上）
-    const bossHp = getBossHpByLevel(this.level)
+    const gunMul = this.gunSystem.getMultipliers()
+    const bossHp = getBossHpByLevel(this.level, gunMul.damageMul, gunMul.fireRateMul)
     const desiredX = clamp(this.player.x, 100, WORLD_WIDTH - 100)
     const desiredY = clamp(this.player.y - 300, 100, WORLD_HEIGHT - 100)
     const spawnPos = this.findFreePosition(desiredX, desiredY)

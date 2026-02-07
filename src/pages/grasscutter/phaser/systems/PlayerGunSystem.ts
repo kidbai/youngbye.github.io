@@ -3,7 +3,7 @@
  */
 
 import Phaser from 'phaser'
-import { PLAYER_BULLET_CAP, GUN_BASE } from '../../balance'
+import { PLAYER_BULLET_CAP, GUN_BASE, scaleSize } from '../../balance'
 import { Enemy } from '../objects/Enemy'
 import { Boss } from '../objects/Boss'
 import { PlayerBullet } from '../objects/PlayerBullet'
@@ -60,6 +60,9 @@ export class PlayerGunSystem {
 
   /** 是否双持 */
   private dualWield: boolean = false
+
+  /** 最大索敌距离平方（基于视口范围，由外部注入） */
+  private maxTargetRange2: number = Number.POSITIVE_INFINITY
 
   private bullets: Phaser.Physics.Arcade.Group
   private projectiles: Phaser.Physics.Arcade.Group
@@ -123,6 +126,11 @@ export class PlayerGunSystem {
     return this.dualWield
   }
 
+  /** 设置最大索敌距离（每帧由 MainScene 基于视口计算后传入） */
+  setMaxTargetRange(range: number): void {
+    this.maxTargetRange2 = range * range
+  }
+
   setMultipliers(partial: Partial<GunRuntimeMultipliers>): void {
     this.mul = { ...this.mul, ...partial }
   }
@@ -138,6 +146,7 @@ export class PlayerGunSystem {
     this.grenadeCooldownMs = 0
     this.boss = null
     this.dualWield = false
+    this.maxTargetRange2 = Number.POSITIVE_INFINITY
 
     this.bullets.clear(true, true)
     this.projectiles.clear(true, true)
@@ -193,10 +202,11 @@ export class PlayerGunSystem {
 
   /**
    * 查找最近的射击目标（优先普通敌人，也考虑 Boss）
+   * 只在 maxTargetRange 范围内索敌，避免瞄准屏幕外目标。
    */
   private findNearestTarget(): ShootTarget | null {
     let best: ShootTarget | null = null
-    let bestDist2 = Number.POSITIVE_INFINITY
+    let bestDist2 = this.maxTargetRange2
 
     // 遍历普通敌人
     this.enemies.getChildren().forEach((obj) => {
@@ -302,7 +312,7 @@ export class PlayerGunSystem {
     const projectile = new PlayerExplosiveProjectile(this.scene, {
       x: muzzle.x,
       y: muzzle.y,
-      radius: 6,
+      radius: Math.max(3, scaleSize(6)),
       dirX,
       dirY,
       speed: base.grenade.projectileSpeed,
