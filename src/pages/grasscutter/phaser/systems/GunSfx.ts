@@ -193,3 +193,8 @@ export function playGunSfx(gunId: GunId): void {
 export function playGrenadeSfx(): void {
   playGrenadeLaunch()
 }
+
+/** 播放坦克宠物炮弹音效（复用 cannon 音效） */
+export function playTankCannonSfx(): void {
+  playCannon()
+}

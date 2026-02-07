@@ -38,6 +38,7 @@ import {
   POOP_FIELD_TICK_MS,
   getPoopFieldTickDamage,
   SHOOTER_FIRE_RANGE,
+  THROWER_FIRE_RANGE,
   ENEMY_BULLET_MAX_RANGE,
   PLAYER_SPEED,
 } from '../../balance'
@@ -54,6 +55,7 @@ import { SaveSystem } from '../systems/SaveSystem'
 import { PlayerBullet } from '../objects/PlayerBullet'
 import { PlayerExplosiveProjectile } from '../objects/PlayerExplosiveProjectile'
 import { ExplosionFx } from '../objects/ExplosionFx'
+import { TankPet } from '../objects/TankPet'
 import { createOverworldMap, isBlockedAtWorldXY, FULL_COLLISION_TILE_IDS } from '../maps/OverworldMap'
 
 /** 玩家被击中时的重庆话骚话 */
@@ -127,6 +129,8 @@ export class MainScene extends Phaser.Scene {
   private evolveMisses = 0 // 达到进化门槛后，连续未选进化的次数（保底用）
   private bossSpawned = false
   private dualWield = false // 是否已激活双持
+  private hasTankPet = false // 是否已获得坦克宠物
+  private tankPet: TankPet | null = null
 
   // 武器属性
   private weaponDamage = INITIAL_WEAPON_DAMAGE
@@ -201,6 +205,7 @@ export class MainScene extends Phaser.Scene {
     this.weaponCount = save.weaponCount
     this.evolveMisses = save.evolveMisses
     this.dualWield = save.dualWield ?? false
+    this.hasTankPet = save.hasTankPet ?? false
 
     // 创建玩家（确保不出生在阻挡地形上）
     const startPos = this.findFreePosition(worldW / 2, worldH / 2)
@@ -284,6 +289,11 @@ export class MainScene extends Phaser.Scene {
       this.player.enableDualWield()
     }
 
+    // 创建坦克宠物（如果存档中已获得）
+    if (this.hasTankPet) {
+      this.tankPet = new TankPet(this, this.player.x - 60, this.player.y + 30, this.playerProjectiles)
+    }
+
     // 同步 HUD/旧字段（临时兼容）
     this.syncGunStatsToLegacyFields()
 
@@ -333,6 +343,11 @@ export class MainScene extends Phaser.Scene {
 
     // 同步武器显示（朝向 + 类型）
     this.player.setGunDisplay(this.gunSystem.getGunId(), this.gunSystem.getAimAngle())
+
+    // 更新坦克宠物
+    if (this.tankPet) {
+      this.tankPet.update(delta, this.player.x, this.player.y, this.enemies, this.boss)
+    }
 
     // 更新敌人
     this.updateEnemies(delta)
@@ -632,7 +647,7 @@ export class MainScene extends Phaser.Scene {
 
       // 丢大便怪：定时投掷落点 AOE
       if (enemy.enemyType === 'thrower') {
-        this.tryEnemyThrow(enemy, delta)
+        this.tryEnemyThrow(enemy, dist, delta)
       }
     }
   }
@@ -686,13 +701,19 @@ export class MainScene extends Phaser.Scene {
     enemy.setData(key, getShooterEnemyShootIntervalMs(this.level))
   }
 
-  private tryEnemyThrow(enemy: Enemy, delta: number): void {
+  private tryEnemyThrow(enemy: Enemy, dist: number, delta: number): void {
     const key = 'throwCd'
     let cd = (enemy.getData(key) as number) ?? Phaser.Math.Between(0, 350)
     cd = Math.max(0, cd - delta)
 
     if (cd > 0) {
       enemy.setData(key, cd)
+      return
+    }
+
+    // 距离门槛：玩家必须进入 THROWER_FIRE_RANGE 范围内才允许投掷
+    if (dist > THROWER_FIRE_RANGE) {
+      enemy.setData(key, 100)
       return
     }
 
@@ -1150,6 +1171,7 @@ export class MainScene extends Phaser.Scene {
       gunRangeMul: mul.rangeMul,
       evolveMisses: this.evolveMisses,
       dualWield: this.dualWield,
+      hasTankPet: this.hasTankPet,
       // 旧字段（兼容）
       weaponDamage: this.weaponDamage,
       weaponRange: this.weaponRange,
@@ -1243,6 +1265,12 @@ export class MainScene extends Phaser.Scene {
       kindPool.push('dualWield')
     }
 
+    // 坦克宠物选项：尚未获得时可以出现（玩家等级 >= 10）
+    const canTankPet = !this.hasTankPet && this.playerLevel >= 10
+    if (canTankPet) {
+      kindPool.push('tankPet')
+    }
+
     const pickedKinds = new Set<UpgradeKind>(options.map((o) => o.kind))
 
     const pickKind = (): UpgradeKind => {
@@ -1255,6 +1283,7 @@ export class MainScene extends Phaser.Scene {
             const upgradeCount = this.playerLevel - 1
             return { item: k, weight: upgradeCount < 2 ? 1.8 : 0.4 }
           }
+          if (k === 'tankPet') return { item: k, weight: 0.5 }
           return { item: k, weight: 1 }
         })
 
@@ -1280,6 +1309,17 @@ export class MainScene extends Phaser.Scene {
           rarity: 'epic',
           title: '双持武器',
           desc: '双手持枪，同时发射两把武器',
+        })
+        continue
+      }
+
+      if (kind === 'tankPet') {
+        options.push({
+          id: 'tankPet',
+          kind: 'tankPet',
+          rarity: 'epic',
+          title: '坦克宠物',
+          desc: '召唤一辆坦克跟随你，自动发射范围爆炸炮弹',
         })
         continue
       }
@@ -1310,12 +1350,7 @@ export class MainScene extends Phaser.Scene {
         : null
     }
 
-    if (current === 'grenadeMg') {
-      return nextLevel >= EVOLVE_AT_PLAYER_LEVEL.cannon
-        ? { fromKey: 'grenadeMg', toKey: 'cannon', requiredLevel: EVOLVE_AT_PLAYER_LEVEL.cannon }
-        : null
-    }
-
+    // grenadeMg 是枪械进化终点，cannon 改为坦克宠物
     return null
   }
 
@@ -1333,8 +1368,8 @@ export class MainScene extends Phaser.Scene {
     }
   }
 
-  private buildStatOption(kind: Exclude<UpgradeKind, 'evolve' | 'dualWield'>, rarity: UpgradeRarity): UpgradeOption {
-    const labelMap: Record<Exclude<UpgradeKind, 'evolve' | 'dualWield'>, { title: string; descPrefix: string; key: keyof typeof STAT_UPGRADE_VALUES }> = {
+  private buildStatOption(kind: Exclude<UpgradeKind, 'evolve' | 'dualWield' | 'tankPet'>, rarity: UpgradeRarity): UpgradeOption {
+    const labelMap: Record<Exclude<UpgradeKind, 'evolve' | 'dualWield' | 'tankPet'>, { title: string; descPrefix: string; key: keyof typeof STAT_UPGRADE_VALUES }> = {
       damageMul: { title: '攻击力提升', descPrefix: '攻击力', key: 'damageMul' },
       fireRateMul: { title: '攻速提升', descPrefix: '攻速', key: 'fireRateMul' },
       rangeMul: { title: '射程提升', descPrefix: '射程', key: 'rangeMul' },
@@ -1417,6 +1452,11 @@ export class MainScene extends Phaser.Scene {
         this.player.enableDualWield()
         break
       }
+      case 'tankPet': {
+        this.hasTankPet = true
+        this.tankPet = new TankPet(this, this.player.x - 60, this.player.y + 30, this.playerProjectiles)
+        break
+      }
     }
 
     this.playerLevel++
@@ -1455,6 +1495,13 @@ export class MainScene extends Phaser.Scene {
     this.weaponCount = INITIAL_WEAPON_COUNT
     this.bossSpawned = false
     this.dualWield = false
+    this.hasTankPet = false
+
+    // 销毁坦克宠物
+    if (this.tankPet) {
+      this.tankPet.destroy()
+      this.tankPet = null
+    }
 
     // 重置玩家
     this.player.hp = PLAYER_MAX_HP
@@ -1549,6 +1596,7 @@ export class MainScene extends Phaser.Scene {
       gunRangeMul: gunMul.rangeMul,
       evolveMisses: this.evolveMisses,
       dualWield: this.dualWield,
+      hasTankPet: this.hasTankPet,
 
       weaponDamage: this.weaponDamage,
       weaponRange: this.weaponRange,

@@ -68,6 +68,7 @@ function GrassCutter() {
   const [gunRangeMul, setGunRangeMul] = useState(1)
   const [evolveMisses, setEvolveMisses] = useState(0)
   const [highScore, setHighScore] = useState(0)
+  const [hasTankPet, setHasTankPet] = useState(false)
 
   // 升级卡池（Phaser 下发的 3 选 1）
   const [upgradeOptions, setUpgradeOptions] = useState<UpgradeOption[]>([])
@@ -117,6 +118,7 @@ function GrassCutter() {
       setGunFireRateMul(snapshot.gunFireRateMul)
       setGunRangeMul(snapshot.gunRangeMul)
       setEvolveMisses(snapshot.evolveMisses)
+      setHasTankPet(snapshot.hasTankPet)
     }
 
     const handleNeedUpgrade = (options: UpgradeOption[]) => {
@@ -332,6 +334,7 @@ function GrassCutter() {
         gunFireRateMul,
         gunRangeMul,
         evolveMisses,
+        hasTankPet,
 
         // 旧字段：暂留
         weaponDamage,
@@ -345,7 +348,7 @@ function GrassCutter() {
       console.warn('[GrassCutter] Failed to save:', e)
     }
     navigate('/')
-  }, [level, highScore, score, gunKey, gunDamageMul, gunFireRateMul, gunRangeMul, evolveMisses, weaponDamage, weaponRange, weaponRotationSpeed, weaponCount, playerLevel, navigate])
+  }, [level, highScore, score, gunKey, gunDamageMul, gunFireRateMul, gunRangeMul, evolveMisses, hasTankPet, weaponDamage, weaponRange, weaponRotationSpeed, weaponCount, playerLevel, navigate])
 
   const handleUpgrade = useCallback((option: UpgradeOption) => {
     // 防重复点击
@@ -542,7 +545,11 @@ function GrassCutter() {
                         ? '⚡'
                         : opt.kind === 'rangeMul'
                           ? '📏'
-                          : '🧬'
+                          : opt.kind === 'tankPet'
+                            ? '🛡️'
+                            : opt.kind === 'dualWield'
+                              ? '🔫'
+                              : '🧬'
 
                   return (
                     <button

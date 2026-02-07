@@ -54,6 +54,9 @@ export class PreloadScene extends Phaser.Scene {
     // 生成像素风武器纹理（玩家持枪展示）
     this.generateWeaponTextures()
 
+    // 生成坦克宠物纹理
+    this.generateTankTextures()
+
     // 进入主场景
     this.scene.start('MainScene')
   }
@@ -674,6 +677,81 @@ export class PreloadScene extends Phaser.Scene {
       ctx.fillStyle = O
       ctx.fillRect(4, 2, 8, 1)
       ctx.fillRect(4, 13, 8, 1)
+    })
+  }
+
+  /** 生成坦克宠物像素纹理 */
+  private generateTankTextures(): void {
+    const make = (key: string, w: number, h: number, draw: (ctx: CanvasRenderingContext2D) => void) => {
+      if (this.textures.exists(key)) return
+      const canvas = document.createElement('canvas')
+      canvas.width = w
+      canvas.height = h
+      const ctx = canvas.getContext('2d')!
+      ctx.imageSmoothingEnabled = false
+      ctx.clearRect(0, 0, w, h)
+      draw(ctx)
+      this.textures.addCanvas(key, canvas)
+    }
+
+    // === 坦克车身 px-tank-body（36x24） ===
+    make('px-tank-body', 36, 24, (ctx) => {
+      const O = '#1a1a2e'
+      const ARMOR = '#2d6a4f'
+      const AH = '#40916c'
+      const AD = '#1b4332'
+      const TRACK = '#374151'
+      const TH = '#4b5563'
+
+      // 履带（上下两条）
+      ctx.fillStyle = O; ctx.fillRect(2, 0, 32, 5)
+      ctx.fillStyle = TRACK; ctx.fillRect(3, 1, 30, 3)
+      ctx.fillStyle = TH; ctx.fillRect(3, 1, 30, 1)
+
+      ctx.fillStyle = O; ctx.fillRect(2, 19, 32, 5)
+      ctx.fillStyle = TRACK; ctx.fillRect(3, 20, 30, 3)
+      ctx.fillStyle = TH; ctx.fillRect(3, 20, 30, 1)
+
+      // 车身（中间装甲块）
+      ctx.fillStyle = O; ctx.fillRect(4, 5, 28, 14)
+      ctx.fillStyle = ARMOR; ctx.fillRect(5, 6, 26, 12)
+      ctx.fillStyle = AH; ctx.fillRect(5, 6, 26, 3)
+      ctx.fillStyle = AD; ctx.fillRect(5, 15, 26, 3)
+
+      // 装甲装饰线
+      ctx.fillStyle = '#fbbf24'; ctx.fillRect(6, 11, 24, 1)
+
+      // 履带轮子（简化圆点）
+      ctx.fillStyle = TH
+      for (let i = 0; i < 5; i++) {
+        ctx.fillRect(5 + i * 6, 2, 2, 1)
+        ctx.fillRect(5 + i * 6, 21, 2, 1)
+      }
+    })
+
+    // === 坦克炮管 px-tank-turret（28x10） ===
+    make('px-tank-turret', 28, 10, (ctx) => {
+      const O = '#1a1a2e'
+      const M = '#6b7280'
+      const H = '#9ca3af'
+      const D = '#374151'
+
+      // 炮塔底座（左侧圆形）
+      ctx.fillStyle = O; ctx.fillRect(0, 1, 10, 8)
+      ctx.fillStyle = M; ctx.fillRect(1, 2, 8, 6)
+      ctx.fillStyle = H; ctx.fillRect(1, 2, 8, 2)
+      ctx.fillStyle = D; ctx.fillRect(1, 6, 8, 2)
+
+      // 炮管（粗管朝右）
+      ctx.fillStyle = O; ctx.fillRect(9, 2, 17, 6)
+      ctx.fillStyle = M; ctx.fillRect(10, 3, 15, 4)
+      ctx.fillStyle = H; ctx.fillRect(10, 3, 15, 1)
+      ctx.fillStyle = D; ctx.fillRect(10, 6, 15, 1)
+
+      // 炮口
+      ctx.fillStyle = O; ctx.fillRect(25, 1, 3, 8)
+      ctx.fillStyle = '#4b5563'; ctx.fillRect(26, 2, 1, 6)
+      ctx.fillStyle = '#0f172a'; ctx.fillRect(27, 3, 1, 4)
     })
   }
 }

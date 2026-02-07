@@ -38,17 +38,16 @@ export const TOTAL_LEVELS = 20
 
 // ==================== 枪械方案（单一真源） ====================
 
-/** 线性进化：手枪 → 冲锋枪 → 榴弹机枪 → 大炮 */
+/** 线性进化：手枪 → 冲锋枪 → 榴弹机枪（大炮改为独立坦克宠物） */
 export const EVOLVE_AT_PLAYER_LEVEL = {
   smg: 6,
   grenadeMg: 13,
-  cannon: 20,
 } as const
 
 /** 达到进化门槛后，连续错过进化卡 N 次则下一次必出 */
 export const EVOLVE_PITY_AFTER_MISSES = 2
 
-/** 稀有度权重（用于“随机 3 选 1”抽卡） */
+/** 稀有度权重（用于"随机 3 选 1"抽卡） */
 export const UPGRADE_RARITY_WEIGHTS = {
   common: 75,
   rare: 20,
@@ -125,21 +124,30 @@ export const GUN_BASE = {
   },
 } as const
 
+// ==================== 坦克宠物参数 ====================
+
+/** 坦克宠物射击冷却（ms） */
+export const TANK_PET_COOLDOWN_MS = 2500
+/** 坦克跟随玩家偏移距离（px） */
+export const TANK_PET_FOLLOW_OFFSET = 60
+/** 坦克跟随插值系数（越小越平滑） */
+export const TANK_PET_FOLLOW_LERP = 0.06
+
 // ==================== 敌人与Boss数值 ====================
 
-// 普通怪物：第 1 关 200 起步，10 关内控制在约 3~4 倍，避免纯“堆肉”
-export const ENEMY_BASE_HP = 200
-export const ENEMY_HP_GROWTH = 1.16
+// 普通怪物：配合双持+坦克 AOE 的高输出，提高血量保持中上难度
+export const ENEMY_BASE_HP = 280
+export const ENEMY_HP_GROWTH = 1.19
 
-// Boss：倍率随关卡缓增（避免固定倍率导致后期过度膨胀）
-export const BOSS_HP_FACTOR_BASE = 6.5
-export const BOSS_HP_FACTOR_GROWTH = 0.5
+// Boss：倍率随关卡缓增（配合玩家后期强力输出）
+export const BOSS_HP_FACTOR_BASE = 8.0
+export const BOSS_HP_FACTOR_GROWTH = 0.6
 
 export const LEVEL_SPAWN_INTERVAL_BASE = 1200
 export const LEVEL_SPAWN_INTERVAL_MIN = 450
 export const LEVEL_SPAWN_INTERVAL_DECAY = 50
 
-// 敌人移动速度曲线：整体下调，缓解“贴脸过快 + 扎堆”
+// 敌人移动速度曲线：整体下调，缓解"贴脸过快 + 扎堆"
 export const LEVEL_ENEMY_SPEED_BASE = 0.85
 export const LEVEL_ENEMY_SPEED_GROWTH = 0.045
 export const LEVEL_ENEMY_SPEED_MAX = 2.8
@@ -160,7 +168,7 @@ export function getEnemyTypeSpawnWeights(level: number): {
   return { melee, shooter, thrower }
 }
 
-// 近战怪：改为“接触不自爆”，而是按冷却对玩家造成伤害
+// 近战怪：改为"接触不自爆"，而是按冷却对玩家造成伤害
 export function getMeleeEnemyAttackIntervalMs(level: number): number {
   return Math.max(350, 900 - 25 * (level - 1))
 }
@@ -190,8 +198,11 @@ export const ENEMY_BULLET_MAX_RANGE = 650
 
 // 丢大便怪：投掷落点范围伤害（可选残留区）
 export function getThrowerEnemyThrowIntervalMs(level: number): number {
-  return Math.max(900, 2400 - 70 * (level - 1))
+  return Math.max(1200, 3400 - 70 * (level - 1))
 }
+
+/** 丢大便怪开火距离阈值（玩家必须进入该范围内才会投掷） */
+export const THROWER_FIRE_RANGE = 520
 
 export const THROWER_POOP_IMPACT_RADIUS = 90
 

@@ -20,6 +20,9 @@ export interface SaveData {
   /** 是否已激活双持 */
   dualWield: boolean
 
+  /** 是否已获得坦克宠物 */
+  hasTankPet: boolean
+
   /** 旧字段：保留以兼容 UI / 旧存档（后续可以逐步下线） */
   weaponDamage: number
   weaponRange: number
@@ -53,6 +56,9 @@ export interface GameSnapshot {
   /** 是否已激活双持 */
   dualWield: boolean
 
+  /** 是否已获得坦克宠物 */
+  hasTankPet: boolean
+
   /** 旧字段：暂留（HUD 仍有引用） */
   weaponDamage: number
   weaponRange: number
@@ -64,7 +70,7 @@ export interface GameSnapshot {
 export type UpgradeRarity = 'common' | 'rare' | 'epic'
 
 /** 升级类别 */
-export type UpgradeKind = 'damageMul' | 'fireRateMul' | 'rangeMul' | 'evolve' | 'dualWield'
+export type UpgradeKind = 'damageMul' | 'fireRateMul' | 'rangeMul' | 'evolve' | 'dualWield' | 'tankPet'
 
 /** 当前支持的枪械 key（与 balance.ts 的 GUN_BASE 保持一致） */
 export type GunKey = 'pistol' | 'smg' | 'grenadeMg' | 'cannon'

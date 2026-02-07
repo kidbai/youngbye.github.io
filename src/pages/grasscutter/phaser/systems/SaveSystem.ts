@@ -21,6 +21,7 @@ const DEFAULT_SAVE: SaveData = {
   gunRangeMul: 1,
   evolveMisses: 0,
   dualWield: false,
+  hasTankPet: false,
 
   // 旧字段：默认值对齐新版"手枪"
   weaponDamage: GUN_BASE.pistol.baseDamage,
@@ -37,7 +38,12 @@ export class SaveSystem {
       if (saved) {
         const data = JSON.parse(saved) as Partial<SaveData>
         // 合并默认值，兼容旧版存档缺少字段
-        return { ...DEFAULT_SAVE, ...data }
+        const merged = { ...DEFAULT_SAVE, ...data }
+        // 兼容旧存档：cannon 已从进化链移除，回退为 grenadeMg
+        if (merged.gunKey === 'cannon') {
+          merged.gunKey = 'grenadeMg'
+        }
+        return merged
       }
     } catch (e) {
       console.warn('[SaveSystem] Failed to load save:', e)
