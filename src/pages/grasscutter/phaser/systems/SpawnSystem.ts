@@ -86,6 +86,16 @@ export class SpawnSystem {
   resume(): void {
     if (this.spawnTimer) {
       this.spawnTimer.paused = false
+    } else if (this.spawnedCount < ENEMIES_PER_LEVEL) {
+      // 定时器已丢失（被 Phaser 内部清理或销毁）但尚未刷满，重建定时器继续刷怪
+      const config = getLevelConfig(this.level)
+      this.spawnTimer = this.scene.time.addEvent({
+        delay: config.spawnInterval,
+        callback: this.spawnEnemy,
+        callbackScope: this,
+        loop: true,
+      })
+      this.spawnTimer.paused = false
     }
   }
 

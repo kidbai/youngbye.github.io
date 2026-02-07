@@ -1237,7 +1237,7 @@ export class MainScene extends Phaser.Scene {
 
     eventBus.on(Events.RESUME, () => {
       this.scene.resume()
-      // 恢复物理引擎
+      // 先恢复物理引擎，再恢复刷怪（resume 内部会处理定时器丢失的情况）
       this.physics.resume()
       this.spawnSystem.resume()
       if (this.gameState === 'upgrading' && this.pendingUpgrades <= 0) {
@@ -1493,9 +1493,11 @@ export class MainScene extends Phaser.Scene {
       emitNeedUpgrade(this.generateUpgradeOptions())
       this.emitState()
     } else {
-      // 所有升级完成，恢复刷怪与物理引擎
-      this.spawnSystem.resume()
+      // 所有升级完成，恢复物理引擎
       this.physics.resume()
+
+      // 恢复刷怪（resume 内部会自动处理定时器丢失的情况）
+      this.spawnSystem.resume()
 
       this.gameState = 'playing'
       this.emitState()
