@@ -27,9 +27,11 @@ export class EnemyBullet extends Phaser.GameObjects.Image {
     dirY: number,
     speed: number,
     damage: number,
-    maxRange = 9999
+    maxRange = 9999,
+    textureKey = 'px-bullet',
+    tint = 0x60a5fa
   ) {
-    super(scene, x, y, 'px-bullet')
+    super(scene, x, y, textureKey)
 
     this.damage = damage
     this.speed = speed
@@ -42,7 +44,7 @@ export class EnemyBullet extends Phaser.GameObjects.Image {
     this.vx = dirX * speed
     this.vy = dirY * speed
 
-    this.setTint(0x60a5fa)
+    if (tint !== 0) this.setTint(tint)
     this.setRotation(Math.atan2(this.vy, this.vx))
 
     const d = this.bulletRadius * 2 + 2

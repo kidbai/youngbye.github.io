@@ -28,8 +28,6 @@ import {
   UPGRADE_RARITY_WEIGHTS,
   STAT_UPGRADE_VALUES,
   GUN_BASE,
-  getMeleeEnemyAttackIntervalMs,
-  getMeleeEnemyAttackDamage,
   getShooterEnemyShootIntervalMs,
   getShooterEnemyBulletSpeed,
   getShooterEnemyBulletDamage,
@@ -128,6 +126,7 @@ export class MainScene extends Phaser.Scene {
   private pendingUpgrades = 0 // 待处理的升级次数
   private evolveMisses = 0 // 达到进化门槛后，连续未选进化的次数（保底用）
   private bossSpawned = false
+  private dualWield = false // 是否已激活双持
 
   // 武器属性
   private weaponDamage = INITIAL_WEAPON_DAMAGE
@@ -201,6 +200,7 @@ export class MainScene extends Phaser.Scene {
     this.playerLevel = save.playerLevel
     this.weaponCount = save.weaponCount
     this.evolveMisses = save.evolveMisses
+    this.dualWield = save.dualWield ?? false
 
     // 创建玩家（确保不出生在阻挡地形上）
     const startPos = this.findFreePosition(worldW / 2, worldH / 2)
@@ -217,6 +217,8 @@ export class MainScene extends Phaser.Scene {
 
     // 创建枪械系统（自动索敌射击）
     this.gunSystem = new PlayerGunSystem(this, this.enemies)
+    this.gunSystem.setMuzzleProvider(() => this.player.getGunMuzzleWorld())
+    this.gunSystem.setMuzzle2Provider(() => this.player.getGunMuzzle2World())
     this.playerBullets = this.gunSystem.getBulletsGroup()
     this.playerProjectiles = this.gunSystem.getProjectilesGroup()
 
@@ -276,6 +278,12 @@ export class MainScene extends Phaser.Scene {
       rangeMul: save.gunRangeMul,
     })
 
+    // 应用双持
+    if (this.dualWield) {
+      this.gunSystem.setDualWield(true)
+      this.player.enableDualWield()
+    }
+
     // 同步 HUD/旧字段（临时兼容）
     this.syncGunStatsToLegacyFields()
 
@@ -322,6 +330,9 @@ export class MainScene extends Phaser.Scene {
     this.gunSystem.setPlayerPosition(this.player.x, this.player.y)
     this.gunSystem.update(delta, worldW, worldH)
     this.syncGunStatsToLegacyFields()
+
+    // 同步武器显示（朝向 + 类型）
+    this.player.setGunDisplay(this.gunSystem.getGunId(), this.gunSystem.getAimAngle())
 
     // 更新敌人
     this.updateEnemies(delta)
@@ -521,14 +532,23 @@ export class MainScene extends Phaser.Scene {
         const ny = dy / dist
 
         if (enemy.enemyType === 'melee') {
-          // 近战：追击 + 轻微绕圈
-          const swirlDir = (enemy.getData('swirlDir') as number) ?? 1
-          const tx = -ny
-          const ty = nx
-          const swirl = 0.16
+          // 弓箭手：保持距离 + 横移（比 shooter 稍近）
+          const minDist = 160
+          const maxDist = 320
 
-          vx = nx * enemy.speed + tx * enemy.speed * swirl * swirlDir
-          vy = ny * enemy.speed + ty * enemy.speed * swirl * swirlDir
+          if (dist > maxDist) {
+            vx = nx * enemy.speed
+            vy = ny * enemy.speed
+          } else if (dist < minDist) {
+            vx = -nx * enemy.speed * 0.9
+            vy = -ny * enemy.speed * 0.9
+          } else {
+            const swirlDir = (enemy.getData('swirlDir') as number) ?? 1
+            const tx = -ny
+            const ty = nx
+            vx = tx * enemy.speed * 0.4 * swirlDir
+            vy = ty * enemy.speed * 0.4 * swirlDir
+          }
         } else {
           // shooter/thrower：保持距离
           const minDist = enemy.enemyType === 'shooter' ? 220 : 260
@@ -576,18 +596,20 @@ export class MainScene extends Phaser.Scene {
 
       body.setVelocity(vx, vy)
 
+      // 所有怪物都朝向玩家同步武器
+      enemy.aimWeaponAt(dx, dy)
+
       enemy.updateEnemy(delta)
 
-      // 近战接触攻击：不再"自爆死亡"，改为冷却攻击
+      // 接触攻击（所有类型近身都有微量伤害）
       const contactKey = 'contactCd'
       let contactCd = (enemy.getData(contactKey) as number) ?? 0
       contactCd = Math.max(0, contactCd - delta)
 
       const contactRange = this.player.radius + enemy.radius
       if (dist < contactRange && contactCd <= 0) {
-        const dmg = enemy.enemyType === 'melee' ? getMeleeEnemyAttackDamage(level) : Math.round(3 + 0.3 * level)
-
-        const interval = enemy.enemyType === 'melee' ? getMeleeEnemyAttackIntervalMs(level) : 950
+        const dmg = Math.round(3 + 0.3 * level)
+        const interval = 950
 
         this.player.takeDamage(dmg)
         this.player.showSpeech(PLAYER_HIT_SPEECHES[Math.floor(Math.random() * PLAYER_HIT_SPEECHES.length)])
@@ -598,9 +620,14 @@ export class MainScene extends Phaser.Scene {
         enemy.setData(contactKey, contactCd)
       }
 
+      // 弓箭手（原近战）：远程射箭
+      if (enemy.enemyType === 'melee') {
+        this.tryEnemyShoot(enemy, dx, dy, dist, delta, 'px-arrow', 0)
+      }
+
       // 射击怪：定时射击
       if (enemy.enemyType === 'shooter') {
-        this.tryEnemyShoot(enemy, dx, dy, dist, delta)
+        this.tryEnemyShoot(enemy, dx, dy, dist, delta, 'px-bullet', 0x60a5fa)
       }
 
       // 丢大便怪：定时投掷落点 AOE
@@ -610,7 +637,10 @@ export class MainScene extends Phaser.Scene {
     }
   }
 
-  private tryEnemyShoot(enemy: Enemy, dx: number, dy: number, dist: number, delta: number): void {
+  private tryEnemyShoot(
+    enemy: Enemy, dx: number, dy: number, dist: number, delta: number,
+    textureKey = 'px-bullet', tint = 0x60a5fa
+  ): void {
     const key = 'shootCd'
     let cd = (enemy.getData(key) as number) ?? Phaser.Math.Between(0, 250)
     cd = Math.max(0, cd - delta)
@@ -646,7 +676,10 @@ export class MainScene extends Phaser.Scene {
     const dirX = Math.cos(angle)
     const dirY = Math.sin(angle)
 
-    const bullet = new EnemyBullet(this, enemy.x, enemy.y, 6, dirX, dirY, speed, damage, ENEMY_BULLET_MAX_RANGE)
+    // 从武器枪口/箭尖发射
+    const muzzle = enemy.getWeaponMuzzleWorld()
+
+    const bullet = new EnemyBullet(this, muzzle.x, muzzle.y, 6, dirX, dirY, speed, damage, ENEMY_BULLET_MAX_RANGE, textureKey, tint)
     this.enemyBullets.add(bullet)
     bullet.initPhysics()
 
@@ -670,13 +703,15 @@ export class MainScene extends Phaser.Scene {
     }
 
     const speed = getShooterEnemyBulletSpeed(this.level)
+    // 从武器位置发射
+    const muzzle = enemy.getWeaponMuzzleWorld()
     const poop = new PoopProjectile(this, {
-      x: enemy.x,
-      y: enemy.y,
+      x: muzzle.x,
+      y: muzzle.y,
       targetX: this.player.x,
       targetY: this.player.y,
       speed,
-      radius: 8,
+      radius: 12,
       impactRadius: THROWER_POOP_IMPACT_RADIUS,
       impactDamage: getThrowerEnemyImpactDamage(this.level),
       fieldDurationMs: POOP_FIELD_DURATION_MS,
@@ -745,6 +780,24 @@ export class MainScene extends Phaser.Scene {
   private onPoopImpact(poop: PoopProjectile): void {
     // 落点瞬间伤害
     new ExplosionFx(this, { x: poop.x, y: poop.y, radius: poop.impactRadius, color: 0xf59e0b, durationMs: 220 })
+
+    // "屎炸了！" 飘字提示
+    const tip = this.add.text(poop.x, poop.y, '💩 屎炸了！', {
+      fontSize: '18px',
+      fontStyle: 'bold',
+      color: '#fbbf24',
+      stroke: '#1a1a2e',
+      strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(100)
+
+    this.tweens.add({
+      targets: tip,
+      y: poop.y - 60,
+      alpha: 0,
+      duration: 900,
+      ease: 'Quad.easeOut',
+      onComplete: () => { if (tip.active) tip.destroy() },
+    })
 
     const dx = this.player.x - poop.x
     const dy = this.player.y - poop.y
@@ -1096,6 +1149,7 @@ export class MainScene extends Phaser.Scene {
       gunFireRateMul: mul.fireRateMul,
       gunRangeMul: mul.rangeMul,
       evolveMisses: this.evolveMisses,
+      dualWield: this.dualWield,
       // 旧字段（兼容）
       weaponDamage: this.weaponDamage,
       weaponRange: this.weaponRange,
@@ -1183,15 +1237,26 @@ export class MainScene extends Phaser.Scene {
       kindPool.push('evolve')
     }
 
+    // 双持选项：尚未激活时可以出现，前两次升级概率高
+    const canDualWield = !this.dualWield
+    if (canDualWield) {
+      kindPool.push('dualWield')
+    }
+
     const pickedKinds = new Set<UpgradeKind>(options.map((o) => o.kind))
 
     const pickKind = (): UpgradeKind => {
       const candidates = kindPool
         .filter((k) => !pickedKinds.has(k))
-        .map((k) => ({
-          item: k,
-          weight: k === 'evolve' ? 0.35 : 1,
-        }))
+        .map((k) => {
+          if (k === 'evolve') return { item: k, weight: 0.35 }
+          if (k === 'dualWield') {
+            // 前两次升级给较高概率（upgradeCount = playerLevel - 1）
+            const upgradeCount = this.playerLevel - 1
+            return { item: k, weight: upgradeCount < 2 ? 1.8 : 0.4 }
+          }
+          return { item: k, weight: 1 }
+        })
 
       return this.weightedPick(candidates)
     }
@@ -1205,6 +1270,17 @@ export class MainScene extends Phaser.Scene {
         if (evolveInfo) {
           options.push(this.buildEvolveOption(evolveInfo))
         }
+        continue
+      }
+
+      if (kind === 'dualWield') {
+        options.push({
+          id: 'dualWield',
+          kind: 'dualWield',
+          rarity: 'epic',
+          title: '双持武器',
+          desc: '双手持枪，同时发射两把武器',
+        })
         continue
       }
 
@@ -1257,8 +1333,8 @@ export class MainScene extends Phaser.Scene {
     }
   }
 
-  private buildStatOption(kind: Exclude<UpgradeKind, 'evolve'>, rarity: UpgradeRarity): UpgradeOption {
-    const labelMap: Record<Exclude<UpgradeKind, 'evolve'>, { title: string; descPrefix: string; key: keyof typeof STAT_UPGRADE_VALUES }> = {
+  private buildStatOption(kind: Exclude<UpgradeKind, 'evolve' | 'dualWield'>, rarity: UpgradeRarity): UpgradeOption {
+    const labelMap: Record<Exclude<UpgradeKind, 'evolve' | 'dualWield'>, { title: string; descPrefix: string; key: keyof typeof STAT_UPGRADE_VALUES }> = {
       damageMul: { title: '攻击力提升', descPrefix: '攻击力', key: 'damageMul' },
       fireRateMul: { title: '攻速提升', descPrefix: '攻速', key: 'fireRateMul' },
       rangeMul: { title: '射程提升', descPrefix: '射程', key: 'rangeMul' },
@@ -1335,6 +1411,12 @@ export class MainScene extends Phaser.Scene {
         this.evolveMisses = 0
         break
       }
+      case 'dualWield': {
+        this.dualWield = true
+        this.gunSystem.setDualWield(true)
+        this.player.enableDualWield()
+        break
+      }
     }
 
     this.playerLevel++
@@ -1372,6 +1454,7 @@ export class MainScene extends Phaser.Scene {
     this.weaponRotationSpeed = INITIAL_WEAPON_ROTATION_SPEED
     this.weaponCount = INITIAL_WEAPON_COUNT
     this.bossSpawned = false
+    this.dualWield = false
 
     // 重置玩家
     this.player.hp = PLAYER_MAX_HP
@@ -1465,6 +1548,7 @@ export class MainScene extends Phaser.Scene {
       gunFireRateMul: gunMul.fireRateMul,
       gunRangeMul: gunMul.rangeMul,
       evolveMisses: this.evolveMisses,
+      dualWield: this.dualWield,
 
       weaponDamage: this.weaponDamage,
       weaponRange: this.weaponRange,

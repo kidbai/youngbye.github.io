@@ -20,8 +20,9 @@ const DEFAULT_SAVE: SaveData = {
   gunFireRateMul: 1,
   gunRangeMul: 1,
   evolveMisses: 0,
+  dualWield: false,
 
-  // 旧字段：默认值对齐新版“手枪”
+  // 旧字段：默认值对齐新版"手枪"
   weaponDamage: GUN_BASE.pistol.baseDamage,
   weaponRange: GUN_BASE.pistol.range,
   weaponRotationSpeed: GUN_BASE.pistol.fireRate,

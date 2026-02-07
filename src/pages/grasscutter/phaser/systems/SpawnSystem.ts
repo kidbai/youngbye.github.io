@@ -5,6 +5,7 @@
 import Phaser from 'phaser'
 import { Enemy, type EnemyType } from '../objects/Enemy'
 import { getLevelConfig, getEnemyTypeSpawnWeights, WORLD_WIDTH, WORLD_HEIGHT, ENEMIES_PER_LEVEL } from '../../balance'
+import { TILE_SIZE } from '../maps/OverworldMap'
 
 const ENEMY_TYPE_IMAGE: Record<EnemyType, string> = {
   shooter: 'minion',
@@ -129,12 +130,12 @@ export class SpawnSystem {
       return { x, y }
     }
 
-    // 刷怪避障：最多重试 N 次，避免出生即卡在不可走地形里
-    const MAX_ATTEMPTS = 12
+    // 刷怪避障：最多重试 N 次，确保出生点及周围区域可行走
+    const MAX_ATTEMPTS = 20
     let spawn = pickEdgeSpawn()
     if (this.isBlocked) {
       for (let i = 0; i < MAX_ATTEMPTS; i++) {
-        if (!this.isBlocked(spawn.x, spawn.y)) break
+        if (!this.isAreaBlocked(spawn.x, spawn.y)) break
         spawn = pickEdgeSpawn()
       }
     }
@@ -166,6 +167,31 @@ export class SpawnSystem {
   /** 获取已生成数量 */
   getSpawnedCount(): number {
     return this.spawnedCount
+  }
+
+  /**
+   * 区域阻挡检测：检查 spawn 点周围 3x3 tile 范围内是否有足够空间。
+   * 如果中心点阻挡、或周围 8 格中阻挡超过 5 格，视为不可走。
+   */
+  private isAreaBlocked(worldX: number, worldY: number): boolean {
+    if (!this.isBlocked) return false
+
+    // 中心点必须可走
+    if (this.isBlocked(worldX, worldY)) return true
+
+    // 检查周围 3x3 tile 区域
+    let blockedCount = 0
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dy === 0) continue
+        if (this.isBlocked(worldX + dx * TILE_SIZE, worldY + dy * TILE_SIZE)) {
+          blockedCount++
+        }
+      }
+    }
+
+    // 周围 8 格中阻挡超过 5 格 → 可能是口袋地形
+    return blockedCount >= 5
   }
 
   /** 检查是否刷满 */

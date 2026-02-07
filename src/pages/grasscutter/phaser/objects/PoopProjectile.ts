@@ -71,9 +71,10 @@ export class PoopProjectile extends Phaser.GameObjects.Image {
       this.vy = 0
     }
 
-    // emoji 风格贴图已自带配色；避免对整张贴图 tint（会把眼白也染色）
-    this.setRotation(Math.atan2(this.vy, this.vx) + Phaser.Math.FloatBetween(-0.2, 0.2))
+    // emoji 风格贴图保持正向，不随飞行方向旋转
+    this.setRotation(0)
 
+    // 大便显示尺寸（缩小到之前的一半左右）
     const d = this.projectileRadius * 2 + 4
     this.setDisplaySize(d, d)
 

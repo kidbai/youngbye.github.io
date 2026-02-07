@@ -8,6 +8,7 @@ import { Enemy } from '../objects/Enemy'
 import { Boss } from '../objects/Boss'
 import { PlayerBullet } from '../objects/PlayerBullet'
 import { PlayerExplosiveProjectile } from '../objects/PlayerExplosiveProjectile'
+import { playGunSfx, playGrenadeSfx } from './GunSfx'
 
 export type GunId = keyof typeof GUN_BASE
 
@@ -39,6 +40,11 @@ export class PlayerGunSystem {
   private playerX: number = 0
   private playerY: number = 0
 
+  /** 枪口世界坐标获取器（由外部注入，用于子弹从枪口发射） */
+  private getMuzzle: (() => { x: number; y: number }) | null = null
+  /** 第二把枪口（双持时使用） */
+  private getMuzzle2: (() => { x: number; y: number }) | null = null
+
   private gunId: GunId = 'pistol'
   private mul: GunRuntimeMultipliers = {
     damageMul: 1,
@@ -48,6 +54,12 @@ export class PlayerGunSystem {
 
   private fireCooldownMs = 0
   private grenadeCooldownMs = 0
+
+  /** 当前射击朝向角度（弧度），供外部读取以同步武器显示 */
+  private aimAngle: number = 0
+
+  /** 是否双持 */
+  private dualWield: boolean = false
 
   private bullets: Phaser.Physics.Arcade.Group
   private projectiles: Phaser.Physics.Arcade.Group
@@ -78,12 +90,37 @@ export class PlayerGunSystem {
     this.boss = boss
   }
 
+  /** 注入枪口位置获取器 */
+  setMuzzleProvider(fn: () => { x: number; y: number }): void {
+    this.getMuzzle = fn
+  }
+
+  /** 注入第二把枪口位置获取器（双持用） */
+  setMuzzle2Provider(fn: () => { x: number; y: number }): void {
+    this.getMuzzle2 = fn
+  }
+
   setGunId(gunId: GunId): void {
     this.gunId = gunId
   }
 
   getGunId(): GunId {
     return this.gunId
+  }
+
+  /** 获取当前射击朝向角度（弧度） */
+  getAimAngle(): number {
+    return this.aimAngle
+  }
+
+  /** 设置双持状态 */
+  setDualWield(enabled: boolean): void {
+    this.dualWield = enabled
+  }
+
+  /** 是否双持 */
+  isDualWield(): boolean {
+    return this.dualWield
   }
 
   setMultipliers(partial: Partial<GunRuntimeMultipliers>): void {
@@ -100,6 +137,7 @@ export class PlayerGunSystem {
     this.fireCooldownMs = 0
     this.grenadeCooldownMs = 0
     this.boss = null
+    this.dualWield = false
 
     this.bullets.clear(true, true)
     this.projectiles.clear(true, true)
@@ -114,6 +152,9 @@ export class PlayerGunSystem {
       this.grenadeCooldownMs = Math.max(0, this.grenadeCooldownMs - deltaMs)
       return
     }
+
+    // 更新瞄准角度（即使未开火也持续跟踪）
+    this.aimAngle = Math.atan2(target.y - this.playerY, target.x - this.playerX)
 
     this.fireCooldownMs = Math.max(0, this.fireCooldownMs - deltaMs)
     this.grenadeCooldownMs = Math.max(0, this.grenadeCooldownMs - deltaMs)
@@ -201,9 +242,12 @@ export class PlayerGunSystem {
     const dirX = Math.cos(angle)
     const dirY = Math.sin(angle)
 
+    // 子弹从枪口发射
+    const muzzle = this.getMuzzle ? this.getMuzzle() : { x: this.playerX, y: this.playerY }
+
     const bullet = new PlayerBullet(this.scene, {
-      x: this.playerX,
-      y: this.playerY,
+      x: muzzle.x,
+      y: muzzle.y,
       radius: base.bulletRadius,
       dirX,
       dirY,
@@ -214,6 +258,30 @@ export class PlayerGunSystem {
 
     this.bullets.add(bullet)
     bullet.initPhysics()
+
+    // 双持：从第二把枪同时发射
+    if (this.dualWield) {
+      const angle2 = Math.atan2(dy, dx) + (spreadRad > 0 ? Phaser.Math.FloatBetween(-spreadRad, spreadRad) : 0)
+      const dirX2 = Math.cos(angle2)
+      const dirY2 = Math.sin(angle2)
+      const muzzle2 = this.getMuzzle2 ? this.getMuzzle2() : muzzle
+
+      const bullet2 = new PlayerBullet(this.scene, {
+        x: muzzle2.x,
+        y: muzzle2.y,
+        radius: base.bulletRadius,
+        dirX: dirX2,
+        dirY: dirY2,
+        speed: base.bulletSpeed,
+        damage: Math.round(base.baseDamage * this.mul.damageMul),
+        range: base.range * this.mul.rangeMul,
+      })
+
+      this.bullets.add(bullet2)
+      bullet2.initPhysics()
+    }
+
+    playGunSfx(this.gunId)
   }
 
   private fireGrenadeAt(targetX: number, targetY: number): void {
@@ -228,9 +296,12 @@ export class PlayerGunSystem {
     const dirX = dx / dist
     const dirY = dy / dist
 
+    // 榴弹也从枪口发射
+    const muzzle = this.getMuzzle ? this.getMuzzle() : { x: this.playerX, y: this.playerY }
+
     const projectile = new PlayerExplosiveProjectile(this.scene, {
-      x: this.playerX,
-      y: this.playerY,
+      x: muzzle.x,
+      y: muzzle.y,
       radius: 6,
       dirX,
       dirY,
@@ -243,6 +314,8 @@ export class PlayerGunSystem {
 
     this.projectiles.add(projectile)
     projectile.initPhysics()
+
+    playGrenadeSfx()
   }
 
   private updateLifetime(worldWidth: number, worldHeight: number): void {

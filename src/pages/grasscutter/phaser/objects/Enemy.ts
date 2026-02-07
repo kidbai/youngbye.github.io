@@ -14,6 +14,13 @@ const SPEECH_DURATION = 2000
 
 export type EnemyType = 'melee' | 'shooter' | 'thrower'
 
+/** 敌人武器纹理映射 */
+const ENEMY_WEAPON_INFO: Record<EnemyType, { key: string; w: number; h: number }> = {
+  melee:   { key: 'px-bow', w: 24, h: 22 },
+  shooter: { key: 'px-gun-enemy', w: 26, h: 14 },
+  thrower: { key: 'px-toilet-roll', w: 22, h: 18 },
+}
+
 export interface EnemyConfig {
   x: number
   y: number
@@ -49,6 +56,7 @@ export class Enemy extends Phaser.GameObjects.Container {
   private speechText: Phaser.GameObjects.Text | null = null
   private hpBarBg: Phaser.GameObjects.Graphics
   private hpBarFill: Phaser.GameObjects.Graphics
+  private weaponSprite: Phaser.GameObjects.Image | null = null
 
   constructor(scene: Phaser.Scene, x: number, y: number, config: Partial<Omit<EnemyConfig, 'x' | 'y'>> = {}) {
     const cfg = { ...DEFAULT_CONFIG, ...config }
@@ -60,6 +68,15 @@ export class Enemy extends Phaser.GameObjects.Container {
     this.radius = cfg.radius
     this.imageKey = cfg.imageKey
     this.enemyType = cfg.enemyType
+
+    // 武器（在头像下层，所有敌人类型都有对应武器展示）
+    const weaponInfo = ENEMY_WEAPON_INFO[cfg.enemyType]
+    if (weaponInfo) {
+      this.weaponSprite = scene.add.image(this.radius, 0, weaponInfo.key)
+      this.weaponSprite.setDisplaySize(weaponInfo.w, weaponInfo.h)
+      this.weaponSprite.setOrigin(0.15, 0.5)
+      this.add(this.weaponSprite)
+    }
 
     // 头像（使用圆形裁剪的纹理）
     this.avatar = scene.add.image(0, 0, `${cfg.imageKey}-circle`)
@@ -142,7 +159,23 @@ export class Enemy extends Phaser.GameObjects.Container {
     if (dist > 0) {
       const body = this.body as Phaser.Physics.Arcade.Body
       body.setVelocity((dx / dist) * this.speed, (dy / dist) * this.speed)
+
+      // 同步武器朝向
+      this.aimWeaponAt(dx, dy)
     }
+  }
+
+  /** 更新武器朝向（指向目标方向） */
+  aimWeaponAt(dx: number, dy: number): void {
+    if (!this.weaponSprite) return
+
+    const angle = Math.atan2(dy, dx)
+    const offset = this.radius + 5
+    this.weaponSprite.setPosition(Math.cos(angle) * offset, Math.sin(angle) * offset)
+    this.weaponSprite.setRotation(angle)
+
+    const absAngle = Math.abs(angle)
+    this.weaponSprite.setFlipY(absAngle > Math.PI / 2)
   }
 
   /** 每帧更新 */
@@ -172,6 +205,21 @@ export class Enemy extends Phaser.GameObjects.Container {
     this.hitFlash = 100
     this.updateHpBar()
     return this.hp <= 0
+  }
+
+  /** 获取武器"枪口/箭尖"在世界坐标系中的位置（供子弹/投掷物生成点使用） */
+  getWeaponMuzzleWorld(): { x: number; y: number } {
+    const weaponInfo = ENEMY_WEAPON_INFO[this.enemyType]
+    if (!weaponInfo || !this.weaponSprite) {
+      return { x: this.x, y: this.y }
+    }
+    // 枪口在武器贴图右端，origin 0.15 意味着枪口距挂载点约 85% 宽度
+    const weaponAngle = this.weaponSprite.rotation
+    const muzzleDist = (this.radius + 5) + weaponInfo.w * 0.85
+    return {
+      x: this.x + Math.cos(weaponAngle) * muzzleDist,
+      y: this.y + Math.sin(weaponAngle) * muzzleDist,
+    }
   }
 
   /** 获取物理 body */

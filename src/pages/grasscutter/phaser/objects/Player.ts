@@ -4,6 +4,14 @@
 
 import Phaser from 'phaser'
 
+/** 武器纹理 key 与显示尺寸映射 */
+const GUN_DISPLAY: Record<string, { key: string; w: number; h: number }> = {
+  pistol:    { key: 'px-gun-pistol',    w: 28, h: 18 },
+  smg:       { key: 'px-gun-smg',       w: 36, h: 18 },
+  grenadeMg: { key: 'px-gun-grenadeMg', w: 40, h: 20 },
+  cannon:    { key: 'px-gun-cannon',    w: 46, h: 24 },
+}
+
 export interface PlayerConfig {
   x: number
   y: number
@@ -37,6 +45,13 @@ export class Player extends Phaser.GameObjects.Container {
   private hitGlow: Phaser.GameObjects.Graphics // 受击红色光环
   private speechText: Phaser.GameObjects.Text | null = null
 
+  /** 武器展示 */
+  private gunSprite: Phaser.GameObjects.Image
+  private gunSprite2: Phaser.GameObjects.Image | null = null // 双持副武器
+  private gunAngle: number = 0 // 当前射击角度（弧度）
+  private currentGunId: string = 'pistol'
+  private _dualWield: boolean = false
+
   constructor(scene: Phaser.Scene, config: Partial<PlayerConfig> = {}) {
     const cfg = { ...DEFAULT_CONFIG, ...config }
     super(scene, cfg.x, cfg.y)
@@ -50,6 +65,13 @@ export class Player extends Phaser.GameObjects.Container {
     this.hitGlow = scene.add.graphics()
     this.hitGlow.setVisible(false)
     this.add(this.hitGlow)
+
+    // 武器（放在头像下层，看起来在"手持"位置）
+    const gunInfo = GUN_DISPLAY.pistol
+    this.gunSprite = scene.add.image(this.radius, 0, gunInfo.key)
+    this.gunSprite.setDisplaySize(gunInfo.w, gunInfo.h)
+    this.gunSprite.setOrigin(0.15, 0.5) // 原点偏左中，便于围绕头像旋转
+    this.add(this.gunSprite)
 
     // 头像（使用圆形裁剪的纹理）
     this.avatar = scene.add.image(0, 0, 'yuanxiao-circle')
@@ -65,6 +87,96 @@ export class Player extends Phaser.GameObjects.Container {
     body.setCircle(cfg.radius)
     body.setOffset(-cfg.radius, -cfg.radius)
     body.setCollideWorldBounds(true)
+  }
+
+  /** 启用双持（创建第二把武器 sprite） */
+  enableDualWield(): void {
+    if (this._dualWield) return
+    this._dualWield = true
+
+    const info = GUN_DISPLAY[this.currentGunId] ?? GUN_DISPLAY.pistol
+    this.gunSprite2 = this.scene.add.image(this.radius, 0, info.key)
+    this.gunSprite2.setDisplaySize(info.w, info.h)
+    this.gunSprite2.setOrigin(0.15, 0.5)
+    // 插入到 gunSprite 的同层（头像下方）
+    this.addAt(this.gunSprite2, this.getIndex(this.gunSprite))
+  }
+
+  /** 更新武器朝向和类型 */
+  setGunDisplay(gunId: string, angle: number): void {
+    this.gunAngle = angle
+
+    // 切换武器纹理
+    if (gunId !== this.currentGunId) {
+      this.currentGunId = gunId
+      const info = GUN_DISPLAY[gunId] ?? GUN_DISPLAY.pistol
+      this.gunSprite.setTexture(info.key)
+      this.gunSprite.setDisplaySize(info.w, info.h)
+
+      if (this.gunSprite2) {
+        this.gunSprite2.setTexture(info.key)
+        this.gunSprite2.setDisplaySize(info.w, info.h)
+      }
+    }
+
+    // 主武器位置：围绕头像边缘
+    const offset = this.radius + 5
+    this.gunSprite.setPosition(
+      Math.cos(angle) * offset,
+      Math.sin(angle) * offset,
+    )
+    this.gunSprite.setRotation(angle)
+
+    const absAngle = Math.abs(angle)
+    this.gunSprite.setFlipY(absAngle > Math.PI / 2)
+
+    // 双持副武器：与主武器同方向，但沿垂直方向偏移（上下分离）
+    if (this.gunSprite2) {
+      const perpAngle = angle + Math.PI / 2 // 垂直于射击方向
+      const spread = 12 // 两把枪之间的垂直偏移
+      // 主枪向一侧偏移
+      this.gunSprite.setPosition(
+        Math.cos(angle) * offset + Math.cos(perpAngle) * spread,
+        Math.sin(angle) * offset + Math.sin(perpAngle) * spread,
+      )
+      // 副枪向另一侧偏移，朝向与主枪一致
+      this.gunSprite2.setPosition(
+        Math.cos(angle) * offset - Math.cos(perpAngle) * spread,
+        Math.sin(angle) * offset - Math.sin(perpAngle) * spread,
+      )
+      this.gunSprite2.setRotation(angle)
+      this.gunSprite2.setFlipY(absAngle > Math.PI / 2)
+    }
+  }
+
+  /** 获取主枪口在世界坐标系中的位置（供子弹生成点使用） */
+  getGunMuzzleWorld(): { x: number; y: number } {
+    const info = GUN_DISPLAY[this.currentGunId] ?? GUN_DISPLAY.pistol
+    const muzzleDist = (this.radius + 5) + info.w * 0.85
+    if (this._dualWield) {
+      const perpAngle = this.gunAngle + Math.PI / 2
+      const spread = 12
+      return {
+        x: this.x + Math.cos(this.gunAngle) * muzzleDist + Math.cos(perpAngle) * spread,
+        y: this.y + Math.sin(this.gunAngle) * muzzleDist + Math.sin(perpAngle) * spread,
+      }
+    }
+    return {
+      x: this.x + Math.cos(this.gunAngle) * muzzleDist,
+      y: this.y + Math.sin(this.gunAngle) * muzzleDist,
+    }
+  }
+
+  /** 获取副枪口在世界坐标系中的位置（双持用） */
+  getGunMuzzle2World(): { x: number; y: number } {
+    const info = GUN_DISPLAY[this.currentGunId] ?? GUN_DISPLAY.pistol
+    const muzzleDist = (this.radius + 5) + info.w * 0.85
+    const perpAngle = this.gunAngle + Math.PI / 2
+    const spread = 12
+    return {
+      x: this.x + Math.cos(this.gunAngle) * muzzleDist - Math.cos(perpAngle) * spread,
+      y: this.y + Math.sin(this.gunAngle) * muzzleDist - Math.sin(perpAngle) * spread,
+    }
   }
 
   /** 受击效果（红色光环，不切换贴图） */

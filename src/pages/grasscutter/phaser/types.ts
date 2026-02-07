@@ -17,6 +17,9 @@ export interface SaveData {
   gunRangeMul: number
   evolveMisses: number
 
+  /** 是否已激活双持 */
+  dualWield: boolean
+
   /** 旧字段：保留以兼容 UI / 旧存档（后续可以逐步下线） */
   weaponDamage: number
   weaponRange: number
@@ -47,6 +50,9 @@ export interface GameSnapshot {
   gunRangeMul: number
   evolveMisses: number
 
+  /** 是否已激活双持 */
+  dualWield: boolean
+
   /** 旧字段：暂留（HUD 仍有引用） */
   weaponDamage: number
   weaponRange: number
@@ -58,7 +64,7 @@ export interface GameSnapshot {
 export type UpgradeRarity = 'common' | 'rare' | 'epic'
 
 /** 升级类别 */
-export type UpgradeKind = 'damageMul' | 'fireRateMul' | 'rangeMul' | 'evolve'
+export type UpgradeKind = 'damageMul' | 'fireRateMul' | 'rangeMul' | 'evolve' | 'dualWield'
 
 /** 当前支持的枪械 key（与 balance.ts 的 GUN_BASE 保持一致） */
 export type GunKey = 'pistol' | 'smg' | 'grenadeMg' | 'cannon'

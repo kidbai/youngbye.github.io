@@ -218,11 +218,11 @@ export function createOverworldMap(scene: Phaser.Scene, seed: number = 20260206)
   }
 
   // ===== 丛林：若干个圆形/椭圆形 patch（可碰撞） =====
-  const junglePatches = 10
+  const junglePatches = 7
   for (let i = 0; i < junglePatches; i++) {
     const cx = Math.floor(rng() * width)
     const cy = Math.floor(rng() * height)
-    const r = 5 + Math.floor(rng() * 10)
+    const r = 4 + Math.floor(rng() * 7)
 
     for (let y = cy - r; y <= cy + r; y++) {
       if (y < 0 || y >= height) continue
@@ -265,11 +265,11 @@ export function createOverworldMap(scene: Phaser.Scene, seed: number = 20260206)
     }
   })
 
-  // ===== 额外岩壁：随机生成几条“断崖” =====
-  const cliffs = 6
+  // ===== 额外岩壁：随机生成几条"断崖" =====
+  const cliffs = 4
   for (let i = 0; i < cliffs; i++) {
     const horizontal = rng() < 0.5
-    const len = 18 + Math.floor(rng() * 35)
+    const len = 12 + Math.floor(rng() * 20)
     const xStart = Math.floor(rng() * (width - 1))
     const yStart = Math.floor(rng() * (height - 1))
 
@@ -283,6 +283,110 @@ export function createOverworldMap(scene: Phaser.Scene, seed: number = 20260206)
       // 两侧点缀山坡
       if (x + 1 < width && data[y][x + 1] === TileId.Grass && rng() < 0.5) data[y][x + 1] = TileId.Hill
       if (x - 1 >= 0 && data[y][x - 1] === TileId.Grass && rng() < 0.5) data[y][x - 1] = TileId.Hill
+    }
+  }
+
+  // ===== 连通性清理：确保所有可走区域与地图中心连通 =====
+  // 从地图中心做 BFS flood-fill，标记所有可达的可走格子
+  // 然后将不可达的 Forest/Rock 小口袋清除为 Grass，避免怪物卡住
+  const collisionSet = new Set<number>(COLLISION_TILE_IDS)
+  const visited: boolean[][] = Array.from({ length: height }, () => Array(width).fill(false))
+
+  // 从地图中心找一个可走的起始点
+  const startX = Math.floor(width / 2)
+  const startY = Math.floor(height / 2)
+  let seedX = startX
+  let seedY = startY
+  // 如果中心恰好阻挡，向四周搜索一个可走点
+  if (collisionSet.has(data[seedY][seedX])) {
+    let found = false
+    for (let r = 1; r < Math.max(width, height) && !found; r++) {
+      for (let dy = -r; dy <= r && !found; dy++) {
+        for (let dx = -r; dx <= r && !found; dx++) {
+          if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue
+          const nx = seedX + dx
+          const ny = seedY + dy
+          if (nx >= 0 && nx < width && ny >= 0 && ny < height && !collisionSet.has(data[ny][nx])) {
+            seedX = nx
+            seedY = ny
+            found = true
+          }
+        }
+      }
+    }
+  }
+
+  // BFS flood-fill 标记连通的可走区域
+  const queue: number[] = [seedX, seedY]
+  visited[seedY][seedX] = true
+  let qi = 0
+  while (qi < queue.length) {
+    const qx = queue[qi++]
+    const qy = queue[qi++]
+    const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]]
+    for (const [ddx, ddy] of dirs) {
+      const nx = qx + ddx
+      const ny = qy + ddy
+      if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue
+      if (visited[ny][nx]) continue
+      if (collisionSet.has(data[ny][nx])) continue
+      visited[ny][nx] = true
+      queue.push(nx, ny)
+    }
+  }
+
+  // 将不可达的碰撞 tile 周围形成的封闭口袋内的阻挡格清除为 Grass
+  // 策略：检查每个碰撞 tile，如果其4邻域中所有可走格都未被主区域连通，
+  // 说明这个碰撞 tile 参与了封闭口袋，清除它
+  let cleared = true
+  while (cleared) {
+    cleared = false
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (data[y][x] !== TileId.Forest && data[y][x] !== TileId.Rock) continue
+        // 检查此碰撞格是否紧邻任何不可达的非碰撞格
+        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]]
+        let hasUnreachableNeighbor = false
+        for (const [ddx, ddy] of dirs) {
+          const nx = x + ddx
+          const ny = y + ddy
+          if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue
+          if (!collisionSet.has(data[ny][nx]) && !visited[ny][nx]) {
+            hasUnreachableNeighbor = true
+            break
+          }
+        }
+        if (hasUnreachableNeighbor) {
+          data[y][x] = TileId.Grass
+          visited[y][x] = true
+          // 向外扩展连通标记
+          for (const [ddx, ddy] of dirs) {
+            const nx = x + ddx
+            const ny = y + ddy
+            if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue
+            if (!visited[ny][nx] && !collisionSet.has(data[ny][nx])) {
+              visited[ny][nx] = true
+              queue.push(nx, ny)
+            }
+          }
+          cleared = true
+        }
+      }
+    }
+    // 每轮清除后重新扩展 BFS
+    while (qi < queue.length) {
+      const qx = queue[qi++]
+      const qy = queue[qi++]
+      const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]]
+      for (const [ddx, ddy] of dirs) {
+        const nx = qx + ddx
+        const ny = qy + ddy
+        if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue
+        if (visited[ny][nx]) continue
+        if (collisionSet.has(data[ny][nx])) continue
+        visited[ny][nx] = true
+        queue.push(nx, ny)
+      }
     }
   }
 
